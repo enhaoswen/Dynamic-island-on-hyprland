@@ -31,26 +31,33 @@ private slots:
     void handleVolumeEvent();
     void fetchCurrentVolume();
     void updateBrightness();
-    void updateCapsLock(); 
+    void updateCapsLock();
     void updateBatterySysfs();
+    void handleAudioRefresh();
 
 private:
     void setupHyprland();
     void setupBattery();
     void setupAudio();
     void setupBrightness();
-    void setupKeyboard(); 
+    void setupKeyboard();
+    bool queryBluetoothAudioConnected();
+    void checkDefaultAudioDevice();
 
+    bool m_isBluetoothAudio = false;
     QLocalSocket *m_hyprSocket;
-    QByteArray m_hyprBuffer; 
+    QByteArray m_hyprBuffer;
     QProcess *m_paSubscriber;
     QFileSystemWatcher *m_brightnessWatcher;
-    QTimer *m_capsTimer; 
+    QTimer *m_capsTimer;
     QTimer *m_sysfsTimer;
+    QTimer *m_audioDebounceTimer;
     double m_maxBrightness;
-     
-    QString m_batteryPath;  
-    QString m_acPath;     
-    int m_batteryCap;         
-    QString m_batteryStatus;  
+
+    QString m_batteryPath;
+    QString m_acPath;
+    int m_batteryCap;
+    QString m_batteryStatus;
+
+    bool m_isBluetoothAudioConnected;
 };

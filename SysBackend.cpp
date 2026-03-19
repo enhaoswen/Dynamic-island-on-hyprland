@@ -109,8 +109,11 @@ void SysBackend::setupAudio() {
 
 void SysBackend::handleVolumeEvent() {
     QByteArray output = m_paSubscriber->readAllStandardOutput();
-    if (output.contains("sink")) {
+    qDebug().noquote() << "[Audio Debug] pactl event:" << output.trimmed();//debug
+
+    if (output.contains("sink") || output.contains("card") || output.contains("server")) {
         fetchCurrentVolume();
+        checkDefaultAudioDevice();
     }
 }
 
@@ -120,10 +123,14 @@ void SysBackend::fetchCurrentVolume() {
     wpctl.waitForFinished(500);
     
     QString output = QString::fromUtf8(wpctl.readAllStandardOutput()).trimmed();
+    qDebug().noquote() << "[Audio Debug] wpctl output:" << output; 
+
     if (output.startsWith("Volume:")) {
         bool isMuted = output.contains("[MUTED]");
         QString valStr = output.section(' ', 1, 1);
         int volPercentage = static_cast<int>(valStr.toDouble() * 100);
+        
+        qDebug() << "[Audio Debug] Emitting volumeChanged:" << volPercentage << "Muted:" << isMuted;
         emit volumeChanged(volPercentage, isMuted);
     }
 }
@@ -151,9 +158,8 @@ void SysBackend::updateBrightness() {
     if (bFile.open(QIODevice::ReadOnly)) {
         double current = QString::fromUtf8(bFile.readAll()).trimmed().toDouble();
         bFile.close();
-        if (m_maxBrightness > 0) {
-            emit brightnessChanged(current / m_maxBrightness);
-        }
+        if (m_maxBrightness > 0) emit brightnessChanged(current / m_maxBrightness);
+        
     }
 }
 
@@ -186,5 +192,21 @@ void SysBackend::updateCapsLock() {
     if (currentState != lastState) {
         if (lastState != -1) emit capsLockChanged(currentState > 0);
         lastState = currentState;
+    }
+}
+
+void SysBackend::checkDefaultAudioDevice() {
+    QProcess pactl;
+    pactl.start("pactl", QStringList() << "get-default-sink");
+    pactl.waitForFinished(500);
+    
+    QString sinkName = QString::fromUtf8(pactl.readAllStandardOutput()).trimmed();
+    
+    bool isBtNow = sinkName.contains("bluez");
+
+    if (isBtNow != m_isBluetoothAudio) {
+        m_isBluetoothAudio = isBtNow;
+        qDebug() << "[Bluetooth Debug] Default sink:" << sinkName << "-> Is BT:" << m_isBluetoothAudio;
+        emit bluetoothChanged(m_isBluetoothAudio);
     }
 }

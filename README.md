@@ -30,7 +30,7 @@ CPU usage < 0.1%
 </div>
 
 <div align="left">
-  <img src="Preview/Preview_4.png" width="450" alt="Preview">
+  <img src="Preview/Preview_9.png" width="450" alt="Preview">
 </div>
 
 #### style 3: long-capsules - when workspace changes
