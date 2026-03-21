@@ -13,6 +13,10 @@ Memory usage: 30-60Mb
 
 CPU usage < 0.1%
 
+
+https://github.com/user-attachments/assets/17a9ffa4-0533-455c-8807-7c6b52b2ede2
+
+
 #### style 1: normal - only show time
 
 <div align="left">
@@ -21,16 +25,9 @@ CPU usage < 0.1%
 
 #### style 2: split - when brightness, volume, bluetooth, etc. changes
 
-<div align="left">
-  <img src="Preview/Preview_2.png" width="450" alt="Preview">
-</div>
 
 <div align="left">
   <img src="Preview/Preview_3.png" width="450" alt="Preview">
-</div>
-
-<div align="left">
-  <img src="Preview/Preview_9.png" width="450" alt="Preview">
 </div>
 
 #### style 3: long-capsules - when workspace changes
