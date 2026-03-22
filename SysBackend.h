@@ -36,7 +36,6 @@ private slots:
     void fetchCurrentVolume();
     void handleBatteryMonitorEvent();
     void updateBrightness();
-    void handleCapsLockMonitorEvent();
     void updateCapsLock();
     void updateBatterySysfs();
     void handleAudioRefresh();
@@ -56,8 +55,8 @@ private:
     QProcess *m_paSubscriber;
     QFileSystemWatcher *m_brightnessWatcher;
     QSocketNotifier *m_batteryNotifier;
-    QSocketNotifier *m_capsNotifier;
     QTimer *m_audioDebounceTimer;
+    QTimer *m_capsPollTimer;
     double m_maxBrightness;
 
     QString m_batteryPath;
@@ -70,5 +69,4 @@ private:
     bool m_capsLockOn;
     struct udev *m_udev;
     struct udev_monitor *m_batteryMonitor;
-    struct udev_monitor *m_capsMonitor;
 };

@@ -50,6 +50,11 @@ PanelWindow {
         property real   _lastVolVal:  -1.0
         property bool btJustConnected: false
         property real   _pendingBlVal:  0.0
+        readonly property bool splitShowsProgress: islandState === "split" && osdProgress >= 0
+        readonly property bool splitShowsText: islandState === "split" && osdProgress < 0 && osdCustomText !== ""
+        readonly property bool splitShowsIconOnly: islandState === "split" && osdProgress < 0 && osdCustomText === ""
+        readonly property bool splitUsesExtendedLayout: splitShowsProgress || splitShowsText
+        readonly property real splitCapsuleWidth: splitShowsProgress ? 248 : (splitShowsText ? 220 : 140)
 
         Behavior on osdProgress { SmoothedAnimation { velocity: 1.2; duration: 180; easing.type: Easing.InOutQuad } }
 
@@ -70,10 +75,9 @@ PanelWindow {
         Timer { id: shakeCoolTimer; interval: 250; onTriggered: islandContainer.shakeCooling = false }
 
         function smartRestoreState() {
-            if (islandContainer.activePlayer && islandContainer.activePlayer.playbackState === MprisPlaybackState.Playing) {
-                splitIcon = "󰋋"; osdProgress = -1.0; osdCustomText = ""; islandState = "split";
-            } else islandState = "normal"; osdProgress = -1.0; osdCustomText = "";
-            
+            islandState = "normal";
+            osdProgress = -1.0;
+            osdCustomText = "";
         }
 
         Timer { id: autoHideTimer; interval: 2500; onTriggered: islandContainer.smartRestoreState() }
@@ -206,7 +210,7 @@ PanelWindow {
             if (currentTrack !== "" && islandState !== "expanded") { islandState = "expanded"; autoHideTimer.restart(); }
         }
 
-        // --- UI 渲染：右侧分离气泡 ---
+        // --- UI 渲染：保留旧分离气泡节点，但不再显示 ---
         Rectangle {
             id: splitBubble
             height: 32; width: 32; radius: 16; color: "black"; y: 8; z: -1
@@ -214,7 +218,7 @@ PanelWindow {
             x: targetX
             Behavior on x { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
 
-            readonly property bool isSplit: islandContainer.islandState === "split"
+            readonly property bool isSplit: false
             opacity: isSplit ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: splitBubble.isSplit ? 300 : 250; easing.type: Easing.InOutQuad } }
 
@@ -274,38 +278,128 @@ PanelWindow {
                 id: clockText
                 anchors.centerIn: parent; text: timeObj.currentTime; color: "white"
                 font.pixelSize: 18; font.bold: true
-                readonly property bool showCondition: islandContainer.islandState === "normal" || (islandContainer.islandState === "split" && islandContainer.osdProgress < 0 && islandContainer.osdCustomText === "")
+                readonly property bool showCondition: islandContainer.islandState === "normal"
                 opacity: showCondition ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: clockText.showCondition ? 300 : 200; easing.type: Easing.InOutQuad } }
+            }
+
+            Item {
+                id: splitIconOnlyLayer
+                anchors.fill: parent
+                readonly property bool showCondition: islandContainer.splitShowsIconOnly
+                opacity: showCondition ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: splitIconOnlyLayer.showCondition ? 220 : 150; easing.type: Easing.InOutQuad } }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: islandContainer.splitIcon
+                    color: "white"
+                    font.pixelSize: 18
+                    font.family: "JetBrainsMono Nerd Font"
+                }
             }
 
             // --- 内容层 1.5: OSD 进度条与文字 ---
             Item {
                 id: osdLayer
                 anchors.fill: parent
-                readonly property bool showCondition: islandContainer.islandState === "split" && (islandContainer.osdProgress >= 0 || islandContainer.osdCustomText !== "")
+                readonly property bool showCondition: islandContainer.splitUsesExtendedLayout
                 opacity: showCondition ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: osdLayer.showCondition ? 280 : 200; easing.type: Easing.InOutQuad } }
 
-                Row {
-                    anchors.centerIn: parent; spacing: 12; visible: islandContainer.osdProgress >= 0
-                    Rectangle {
-                        width: 80; height: 6; radius: 3; color: "#333333"; anchors.verticalCenter: parent.verticalCenter
-                        Rectangle {
-                            height: parent.height; radius: 3; color: "white"
-                            width: parent.width * Math.max(0, Math.min(1, islandContainer.osdProgress))
-                            Behavior on width { SmoothedAnimation { velocity: 300; duration: 120; easing.type: Easing.InOutQuad } }
+                Item {
+                    anchors.fill: parent
+                    visible: islandContainer.splitShowsProgress
+
+                    Row {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 18
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 12
+
+                        Text {
+                            text: islandContainer.splitIcon
+                            color: "white"
+                            font.pixelSize: 18
+                            font.family: "JetBrainsMono Nerd Font"
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Text {
+                            text: Math.round(islandContainer.osdProgress * 100) + "%"
+                            color: "white"
+                            font.pixelSize: 20
+                            font.family: "SF Pro Display"
+                            font.bold: true
+                            font.letterSpacing: -0.3
+                            anchors.verticalCenter: parent.verticalCenter
                         }
                     }
-                    Text {
-                        text: Math.round(islandContainer.osdProgress * 100) + "%"; color: "white"; font.pixelSize: 18
-                        font.family: "JetBrainsMono Nerd Font"; font.bold: true; anchors.verticalCenter: parent.verticalCenter
+
+                    Item {
+                        width: 30
+                        height: 30
+                        anchors.right: parent.right
+                        anchors.rightMargin: 16
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 16
+                            height: 16
+                            radius: 8
+                            color: "#111111"
+                            border.color: "#1f1f1f"
+                            border.width: 1
+                        }
+
+                        Canvas {
+                            id: osdProgressRing
+                            anchors.fill: parent
+                            antialiasing: true
+                            property real progressValue: Math.max(0, Math.min(1, islandContainer.osdProgress))
+
+                            onProgressValueChanged: requestPaint()
+                            onWidthChanged: requestPaint()
+                            onHeightChanged: requestPaint()
+
+                            onPaint: {
+                                var ctx = getContext("2d");
+                                var size = Math.min(width, height);
+                                var lineWidth = 3.5;
+                                var center = size / 2;
+                                var radius = (size - lineWidth) / 2 - 0.5;
+                                var startAngle = -Math.PI / 2;
+                                var endAngle = startAngle + (Math.PI * 2 * progressValue);
+
+                                ctx.clearRect(0, 0, width, height);
+                                ctx.lineCap = "round";
+                                ctx.lineWidth = lineWidth;
+
+                                ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
+                                ctx.beginPath();
+                                ctx.arc(center, center, radius, 0, Math.PI * 2, false);
+                                ctx.stroke();
+
+                                ctx.strokeStyle = "#ffffff";
+                                ctx.beginPath();
+                                ctx.arc(center, center, radius, startAngle, endAngle, false);
+                                ctx.stroke();
+                            }
+                        }
                     }
                 }
 
-                Text {
-                    anchors.centerIn: parent; visible: islandContainer.osdProgress < 0 && islandContainer.osdCustomText !== ""
-                    text: islandContainer.osdCustomText; color: "white"; font.pixelSize: 16; font.bold: true; font.family: "JetBrainsMono Nerd Font"
+                Row {
+                    anchors.centerIn: parent; spacing: 14; visible: islandContainer.splitShowsText
+                    Text {
+                        text: islandContainer.splitIcon; color: "white"; font.pixelSize: 18
+                        font.family: "JetBrainsMono Nerd Font"; anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: islandContainer.osdCustomText; color: "white"; font.pixelSize: 16; font.bold: true
+                        font.family: "JetBrainsMono Nerd Font"; anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
             }
 
@@ -569,7 +663,7 @@ PanelWindow {
 
         states: [
             State { name: "normal";        when: islandContainer.islandState === "normal";         PropertyChanges { target: mainCapsule; width: 140; height: 38; radius: 19 } },
-            State { name: "split";         when: islandContainer.islandState === "split";          PropertyChanges { target: mainCapsule; width: 160; height: 38; radius: 19 } },
+            State { name: "split";         when: islandContainer.islandState === "split";          PropertyChanges { target: mainCapsule; width: islandContainer.splitCapsuleWidth; height: 38; radius: 19 } },
             State { name: "long_capsule"; when: islandContainer.islandState === "long_capsule";   PropertyChanges { target: mainCapsule; width: 220; height: 38; radius: 19 } },
             State {name: "control_center";when: islandContainer.islandState === "control_center"; PropertyChanges { target: mainCapsule; width: 300; height: 38; radius: 19 } },
             State { name: "expanded";      when: islandContainer.islandState === "expanded";       PropertyChanges { target: mainCapsule; width: 400; height: 165; radius: 40 } }

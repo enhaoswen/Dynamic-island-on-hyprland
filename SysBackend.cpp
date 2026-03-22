@@ -2,6 +2,9 @@
 #include <QFile>
 #include <QDir>
 #include <QDebug>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <libudev.h>
 
 SysBackend::SysBackend(QObject *parent)
@@ -10,8 +13,8 @@ SysBackend::SysBackend(QObject *parent)
       m_paSubscriber(nullptr),
       m_brightnessWatcher(nullptr),
       m_batteryNotifier(nullptr),
-      m_capsNotifier(nullptr),
       m_audioDebounceTimer(nullptr),
+      m_capsPollTimer(nullptr),
       m_maxBrightness(1.0),
       m_batteryCap(100),
       m_batteryStatus("Unknown"),
@@ -19,8 +22,7 @@ SysBackend::SysBackend(QObject *parent)
       m_capsLockInitialized(false),
       m_capsLockOn(false),
       m_udev(nullptr),
-      m_batteryMonitor(nullptr),
-      m_capsMonitor(nullptr) {
+      m_batteryMonitor(nullptr) {
     setupHyprland();
     setupBattery();
     setupAudio();
@@ -30,7 +32,6 @@ SysBackend::SysBackend(QObject *parent)
 
 SysBackend::~SysBackend() {
     if (m_batteryMonitor) udev_monitor_unref(m_batteryMonitor);
-    if (m_capsMonitor) udev_monitor_unref(m_capsMonitor);
     if (m_udev) udev_unref(m_udev);
 }
 
@@ -229,70 +230,34 @@ void SysBackend::updateBrightness() {
 // 5. caps lock
 void SysBackend::setupKeyboard() {
     updateCapsLock();
-
-    if (!m_udev) {
-        m_udev = udev_new();
-        if (!m_udev) {
-            qWarning() << "[Keyboard] Failed to create udev context for Caps Lock monitoring";
-            return;
-        }
-    }
-
-    m_capsMonitor = udev_monitor_new_from_netlink(m_udev, "udev");
-    if (!m_capsMonitor) {
-        qWarning() << "[Keyboard] Failed to create udev monitor for Caps Lock monitoring";
-        return;
-    }
-
-    if (udev_monitor_filter_add_match_subsystem_devtype(m_capsMonitor, "leds", nullptr) < 0 ||
-        udev_monitor_enable_receiving(m_capsMonitor) < 0) {
-        qWarning() << "[Keyboard] Failed to enable udev monitor for Caps Lock monitoring";
-        udev_monitor_unref(m_capsMonitor);
-        m_capsMonitor = nullptr;
-        return;
-    }
-
-    const int monitorFd = udev_monitor_get_fd(m_capsMonitor);
-    if (monitorFd < 0) {
-        qWarning() << "[Keyboard] Failed to get udev monitor fd for Caps Lock monitoring";
-        udev_monitor_unref(m_capsMonitor);
-        m_capsMonitor = nullptr;
-        return;
-    }
-
-    m_capsNotifier = new QSocketNotifier(monitorFd, QSocketNotifier::Read, this);
-    connect(m_capsNotifier, &QSocketNotifier::activated, this, &SysBackend::handleCapsLockMonitorEvent);
-}
-
-void SysBackend::handleCapsLockMonitorEvent() {
-    if (!m_capsMonitor) return;
-
-    udev_device *device = nullptr;
-    while ((device = udev_monitor_receive_device(m_capsMonitor)) != nullptr) {
-        const char *sysname = udev_device_get_sysname(device);
-        if (sysname != nullptr && QByteArray(sysname).contains("capslock")) {
-            updateCapsLock();
-        }
-
-        udev_device_unref(device);
+    if (!m_capsPollTimer) {
+        m_capsPollTimer = new QTimer(this);
+        m_capsPollTimer->setInterval(500);
+        connect(m_capsPollTimer, &QTimer::timeout, this, &SysBackend::updateCapsLock);
+        m_capsPollTimer->start();
     }
 }
 
 void SysBackend::updateCapsLock() {
+    QProcess hyprctl;
+    hyprctl.start("hyprctl", QStringList() << "devices" << "-j");
+    if (!hyprctl.waitForFinished(500)) {
+        hyprctl.kill();
+        hyprctl.waitForFinished(100);
+        return;
+    }
+
+    const QByteArray output = hyprctl.readAllStandardOutput();
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(output, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) return;
+
+    const QJsonArray keyboards = doc.object().value("keyboards").toArray();
     bool currentState = false;
-    
-    QDir dir("/sys/class/leds/");
-    QStringList capsLeds = dir.entryList(QStringList() << "*capslock*", QDir::Dirs | QDir::NoDotAndDotDot);
-    
-    for (const QString &led : capsLeds) {
-        QFile file("/sys/class/leds/" + led + "/brightness");
-        if (file.open(QIODevice::ReadOnly)) {
-            if (file.readAll().trimmed().toInt() > 0) {
-                currentState = true;
-                file.close();
-                break; 
-            }
-            file.close();
+    for (const QJsonValue &keyboardVal : keyboards) {
+        if (keyboardVal.toObject().value("capsLock").toBool()) {
+            currentState = true;
+            break;
         }
     }
 
