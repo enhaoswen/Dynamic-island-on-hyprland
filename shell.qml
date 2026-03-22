@@ -11,6 +11,9 @@ PanelWindow {
     mask: Region { item: mainCapsule }
     implicitHeight: 300
     exclusiveZone: 45
+    readonly property string iconFontFamily: "JetBrainsMono Nerd Font"
+    readonly property string textFontFamily: "Inter"
+    readonly property string heroFontFamily: "Inter Display"
 
     // --- 基础时钟引擎 ---
     QtObject {
@@ -41,9 +44,9 @@ PanelWindow {
         property bool shakeCooling: false
         property real lockEndTime: 0
         property int currentWs: 1
-        property int batteryCapacity: 100
-        property bool isCharging: false
-        property string _lastChargeStatus: ""
+        property int batteryCapacity: SysBackend.batteryCapacity
+        property bool isCharging: SysBackend.batteryStatus === "Charging" || SysBackend.batteryStatus === "Full"
+        property string _lastChargeStatus: SysBackend.batteryStatus
         property string _pendingVolType: ""
         property real   _pendingVolVal:  0.0
         property string _lastVolType: ""
@@ -277,7 +280,10 @@ PanelWindow {
             Text {
                 id: clockText
                 anchors.centerIn: parent; text: timeObj.currentTime; color: "white"
-                font.pixelSize: 18; font.bold: true
+                font.pixelSize: 18
+                font.family: root.heroFontFamily
+                font.weight: Font.Bold
+                font.letterSpacing: -0.35
                 readonly property bool showCondition: islandContainer.islandState === "normal"
                 opacity: showCondition ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: clockText.showCondition ? 300 : 200; easing.type: Easing.InOutQuad } }
@@ -295,7 +301,7 @@ PanelWindow {
                     text: islandContainer.splitIcon
                     color: "white"
                     font.pixelSize: 18
-                    font.family: "JetBrainsMono Nerd Font"
+                    font.family: root.iconFontFamily
                 }
             }
 
@@ -321,7 +327,7 @@ PanelWindow {
                             text: islandContainer.splitIcon
                             color: "white"
                             font.pixelSize: 18
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: root.iconFontFamily
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
@@ -329,9 +335,9 @@ PanelWindow {
                             text: Math.round(islandContainer.osdProgress * 100) + "%"
                             color: "white"
                             font.pixelSize: 20
-                            font.family: "SF Pro Display"
-                            font.bold: true
-                            font.letterSpacing: -0.3
+                            font.family: root.heroFontFamily
+                            font.weight: Font.Bold
+                            font.letterSpacing: -0.35
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
@@ -394,11 +400,11 @@ PanelWindow {
                     anchors.centerIn: parent; spacing: 14; visible: islandContainer.splitShowsText
                     Text {
                         text: islandContainer.splitIcon; color: "white"; font.pixelSize: 18
-                        font.family: "JetBrainsMono Nerd Font"; anchors.verticalCenter: parent.verticalCenter
+                        font.family: root.iconFontFamily; anchors.verticalCenter: parent.verticalCenter
                     }
                     Text {
-                        text: islandContainer.osdCustomText; color: "white"; font.pixelSize: 16; font.bold: true
-                        font.family: "JetBrainsMono Nerd Font"; anchors.verticalCenter: parent.verticalCenter
+                        text: islandContainer.osdCustomText; color: "white"; font.pixelSize: 16
+                        font.family: root.textFontFamily; font.weight: Font.DemiBold; font.letterSpacing: -0.15; anchors.verticalCenter: parent.verticalCenter
                     }
                 }
             }
@@ -413,8 +419,8 @@ PanelWindow {
 
                 Row {
                     anchors.centerIn: parent; spacing: 14
-                    Text { text: islandContainer.getWorkspaceIcon(islandContainer.currentWs); font.pixelSize: 19; font.family: "JetBrainsMono Nerd Font"; color: "white"; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "Workspace " + islandContainer.currentWs; color: "white"; font.pixelSize: 16; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: islandContainer.getWorkspaceIcon(islandContainer.currentWs); font.pixelSize: 19; font.family: root.iconFontFamily; color: "white"; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "Workspace " + islandContainer.currentWs; color: "white"; font.pixelSize: 16; font.family: root.textFontFamily; font.weight: Font.DemiBold; font.letterSpacing: -0.15; anchors.verticalCenter: parent.verticalCenter }
                 }
             }
 
@@ -438,14 +444,14 @@ PanelWindow {
                             }
                             Column {
                                 anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                                Text { text: islandContainer.currentTrack; color: "white"; font.bold: true; font.pixelSize: 16; width: 200; elide: Text.ElideRight }
-                                Text { text: islandContainer.currentArtist; color: "#8e8e93"; font.pixelSize: 14; width: 200; elide: Text.ElideRight }
+                                Text { text: islandContainer.currentTrack; color: "white"; font.pixelSize: 16; font.family: root.textFontFamily; font.weight: Font.DemiBold; font.letterSpacing: -0.15; width: 200; elide: Text.ElideRight }
+                                Text { text: islandContainer.currentArtist; color: "#8e8e93"; font.pixelSize: 14; font.family: root.textFontFamily; font.weight: Font.Medium; width: 200; elide: Text.ElideRight }
                             }
                         }
                         Row {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                            Text { text: ""; color: "#ffffff"; font.pixelSize: 14; font.family: "JetBrainsMono Nerd Font"; visible: islandContainer.isCharging; anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: islandContainer.batteryCapacity + "%"; color: "white"; font.pixelSize: 14; font.bold: true; font.family: "JetBrainsMono Nerd Font"; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: ""; color: "#ffffff"; font.pixelSize: 14; font.family: root.iconFontFamily; visible: islandContainer.isCharging; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: islandContainer.batteryCapacity + "%"; color: "white"; font.pixelSize: 14; font.family: root.textFontFamily; font.weight: Font.DemiBold; font.letterSpacing: -0.1; anchors.verticalCenter: parent.verticalCenter }
                             Item {
                                 width: 28; height: 14; anchors.verticalCenter: parent.verticalCenter
                                 Rectangle {
@@ -468,7 +474,7 @@ PanelWindow {
 
                     Item {
                         width: parent.width; height: 16
-                        Text { id: timeL; anchors.left: parent.left; text: islandContainer.timePlayed; color: "#8e8e93"; font.pixelSize: 12 }
+                        Text { id: timeL; anchors.left: parent.left; text: islandContainer.timePlayed; color: "#8e8e93"; font.pixelSize: 12; font.family: root.textFontFamily; font.weight: Font.Medium }
                         Rectangle {
                             anchors.verticalCenter: parent.verticalCenter; anchors.left: timeL.right; anchors.right: timeR.left; anchors.margins: 12; height: 6; radius: 3; color: "#333333"
                             Rectangle {
@@ -476,7 +482,7 @@ PanelWindow {
                                 Behavior on width { NumberAnimation { duration: 500; easing.type: Easing.OutCubic } }
                             }
                         }
-                        Text { id: timeR; anchors.right: parent.right; text: islandContainer.timeTotal; color: "#8e8e93"; font.pixelSize: 12 }
+                        Text { id: timeR; anchors.right: parent.right; text: islandContainer.timeTotal; color: "#8e8e93"; font.pixelSize: 12; font.family: root.textFontFamily; font.weight: Font.Medium }
                     }
 
                     Item {

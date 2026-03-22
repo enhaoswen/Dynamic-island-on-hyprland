@@ -2,6 +2,9 @@
 #include <QFile>
 #include <QDir>
 #include <QDebug>
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,8 +19,10 @@ SysBackend::SysBackend(QObject *parent)
       m_audioDebounceTimer(nullptr),
       m_capsPollTimer(nullptr),
       m_maxBrightness(1.0),
-      m_batteryCap(100),
+      m_batteryCap(0),
       m_batteryStatus("Unknown"),
+      m_upowerBatteryPath(),
+      m_hasBatteryState(false),
       m_isBluetoothAudioConnected(false),
       m_capsLockInitialized(false),
       m_capsLockOn(false),
@@ -33,6 +38,14 @@ SysBackend::SysBackend(QObject *parent)
 SysBackend::~SysBackend() {
     if (m_batteryMonitor) udev_monitor_unref(m_batteryMonitor);
     if (m_udev) udev_unref(m_udev);
+}
+
+int SysBackend::batteryCapacity() const {
+    return m_batteryCap;
+}
+
+QString SysBackend::batteryStatus() const {
+    return m_batteryStatus;
 }
 
 // 1. Hyprland IPC
@@ -86,6 +99,7 @@ void SysBackend::setupBattery() {
     }
 
     updateBatterySysfs();
+    setupBatteryUpower();
 
     if (!m_udev) {
         m_udev = udev_new();
@@ -121,6 +135,99 @@ void SysBackend::setupBattery() {
     connect(m_batteryNotifier, &QSocketNotifier::activated, this, &SysBackend::handleBatteryMonitorEvent);
 }
 
+void SysBackend::setupBatteryUpower() {
+    QDBusConnection bus = QDBusConnection::systemBus();
+    if (!bus.isConnected()) {
+        qWarning() << "[Battery] System DBus is not available for UPower monitoring";
+        return;
+    }
+
+    QDBusInterface upower(
+        "org.freedesktop.UPower",
+        "/org/freedesktop/UPower",
+        "org.freedesktop.UPower",
+        bus,
+        this
+    );
+
+    if (!upower.isValid()) {
+        qWarning() << "[Battery] UPower service is not available";
+        return;
+    }
+
+    QDBusReply<QDBusObjectPath> displayDeviceReply = upower.call("GetDisplayDevice");
+    if (!displayDeviceReply.isValid()) {
+        qWarning() << "[Battery] Failed to get UPower display device:" << displayDeviceReply.error().message();
+        return;
+    }
+
+    m_upowerBatteryPath = displayDeviceReply.value().path();
+    if (m_upowerBatteryPath.isEmpty() || m_upowerBatteryPath == "/") {
+        qWarning() << "[Battery] Invalid UPower display device path";
+        return;
+    }
+
+    const bool changedConnected = bus.connect(
+        "org.freedesktop.UPower",
+        m_upowerBatteryPath,
+        "org.freedesktop.UPower.Device",
+        "Changed",
+        this,
+        SLOT(handleUpowerBatteryChanged())
+    );
+
+    const bool propertiesConnected = bus.connect(
+        "org.freedesktop.UPower",
+        m_upowerBatteryPath,
+        "org.freedesktop.DBus.Properties",
+        "PropertiesChanged",
+        this,
+        SLOT(handleBatteryPropertiesChanged(QString,QVariantMap,QStringList))
+    );
+
+    if (!changedConnected && !propertiesConnected) {
+        qWarning() << "[Battery] Failed to connect to UPower battery change signals";
+        m_upowerBatteryPath.clear();
+        return;
+    }
+
+    updateBatteryUpower();
+}
+
+void SysBackend::updateBatteryState(int capacity, const QString &statusString) {
+    const bool capacityChanged = !m_hasBatteryState || capacity != m_batteryCap;
+    const bool statusChanged = !m_hasBatteryState || statusString != m_batteryStatus;
+
+    if (!capacityChanged && !statusChanged) return;
+
+    m_batteryCap = capacity;
+    m_batteryStatus = statusString;
+    m_hasBatteryState = true;
+
+    qDebug() << "[Battery] State:" << m_batteryCap << "% -" << m_batteryStatus;
+
+    if (capacityChanged) emit batteryCapacityChanged(m_batteryCap);
+    if (statusChanged) emit batteryStatusChanged(m_batteryStatus);
+    emit batteryChanged(m_batteryCap, m_batteryStatus);
+}
+
+QString SysBackend::upowerStateToBatteryStatus(uint state) const {
+    switch (state) {
+        case 1:
+        case 5:
+            return "Charging";
+        case 2:
+        case 6:
+            return "Discharging";
+        case 3:
+            return "Empty";
+        case 4:
+            return "Full";
+        default:
+            return "Unknown";
+    }
+}
+
 void SysBackend::updateBatterySysfs() {
     int currentCap = m_batteryCap;
     QString currentStatus = m_batteryStatus;
@@ -131,9 +238,15 @@ void SysBackend::updateBatterySysfs() {
             currentCap = capFile.readAll().trimmed().toInt();
             capFile.close();
         }
+
+        QFile statusFile(m_batteryPath + "/status");
+        if (statusFile.open(QIODevice::ReadOnly)) {
+            currentStatus = QString::fromUtf8(statusFile.readAll()).trimmed();
+            statusFile.close();
+        }
     }
 
-    if (!m_acPath.isEmpty()) {
+    if ((currentStatus.isEmpty() || currentStatus == "Unknown") && !m_acPath.isEmpty()) {
         QFile acFile(m_acPath + "/online");
         if (acFile.open(QIODevice::ReadOnly)) {
             int isPlugged = acFile.readAll().trimmed().toInt();
@@ -142,12 +255,36 @@ void SysBackend::updateBatterySysfs() {
         }
     }
 
-    if (currentCap != m_batteryCap || currentStatus != m_batteryStatus || m_batteryStatus == "Unknown") {
-        m_batteryCap = currentCap;
-        m_batteryStatus = currentStatus;
-        qDebug() << "[Battery] Sysfs:" << m_batteryCap << "% -" << m_batteryStatus;
-        emit batteryChanged(m_batteryCap, m_batteryStatus);
+    updateBatteryState(currentCap, currentStatus);
+}
+
+void SysBackend::updateBatteryUpower() {
+    if (m_upowerBatteryPath.isEmpty()) return;
+
+    QDBusInterface batteryProps(
+        "org.freedesktop.UPower",
+        m_upowerBatteryPath,
+        "org.freedesktop.DBus.Properties",
+        QDBusConnection::systemBus(),
+        this
+    );
+
+    if (!batteryProps.isValid()) {
+        qWarning() << "[Battery] Failed to create UPower battery properties interface";
+        return;
     }
+
+    QDBusReply<QVariant> percentageReply = batteryProps.call("Get", "org.freedesktop.UPower.Device", "Percentage");
+    QDBusReply<QVariant> stateReply = batteryProps.call("Get", "org.freedesktop.UPower.Device", "State");
+
+    if (!percentageReply.isValid() || !stateReply.isValid()) {
+        qWarning() << "[Battery] Failed to read UPower battery properties";
+        return;
+    }
+
+    const int currentCap = qRound(percentageReply.value().toDouble());
+    const QString currentStatus = upowerStateToBatteryStatus(stateReply.value().toUInt());
+    updateBatteryState(currentCap, currentStatus);
 }
 
 void SysBackend::handleBatteryMonitorEvent() {
@@ -161,6 +298,19 @@ void SysBackend::handleBatteryMonitorEvent() {
     }
 
     if (shouldRefresh) updateBatterySysfs();
+}
+
+void SysBackend::handleBatteryPropertiesChanged(const QString &interfaceName, const QVariantMap &changedProperties, const QStringList &invalidatedProperties) {
+    Q_UNUSED(invalidatedProperties)
+
+    if (interfaceName != "org.freedesktop.UPower.Device") return;
+    if (!changedProperties.contains("Percentage") && !changedProperties.contains("State")) return;
+
+    updateBatteryUpower();
+}
+
+void SysBackend::handleUpowerBatteryChanged() {
+    updateBatteryUpower();
 }
 
 // 3. volume
