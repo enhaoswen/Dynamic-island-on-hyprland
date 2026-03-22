@@ -48,6 +48,15 @@ QString SysBackend::batteryStatus() const {
     return m_batteryStatus;
 }
 
+QString SysBackend::readSysfsTextFile(const QString &path) const {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return "";
+
+    const QString value = QString::fromUtf8(file.readAll()).trimmed();
+    file.close();
+    return value;
+}
+
 // 1. Hyprland IPC
 void SysBackend::setupHyprland() {
     QString signature = qEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE");
@@ -87,16 +96,7 @@ void SysBackend::handleHyprlandData() {
 
 // 2. Battery
 void SysBackend::setupBattery() {
-    QDir dir("/sys/class/power_supply/");
-    QStringList supplies = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    
-    for (const QString &supply : supplies) {
-        if (supply.startsWith("BAT")) {
-            m_batteryPath = "/sys/class/power_supply/" + supply;
-        } else if (supply.startsWith("AC") || supply.startsWith("ADP")) {
-            m_acPath = "/sys/class/power_supply/" + supply; 
-        }
-    }
+    detectPowerSupplyPaths();
 
     updateBatterySysfs();
     setupBatteryUpower();
@@ -133,6 +133,30 @@ void SysBackend::setupBattery() {
 
     m_batteryNotifier = new QSocketNotifier(monitorFd, QSocketNotifier::Read, this);
     connect(m_batteryNotifier, &QSocketNotifier::activated, this, &SysBackend::handleBatteryMonitorEvent);
+}
+
+void SysBackend::detectPowerSupplyPaths() {
+    m_batteryPath.clear();
+    m_acPath.clear();
+
+    const QDir dir("/sys/class/power_supply");
+    const QFileInfoList supplies = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+
+    for (const QFileInfo &supplyInfo : supplies) {
+        const QString supplyName = supplyInfo.fileName();
+        const QString supplyPath = supplyInfo.absoluteFilePath();
+        const QString supplyType = readSysfsTextFile(supplyPath + "/type");
+
+        if (m_batteryPath.isEmpty() && (supplyType == "Battery" || supplyName.startsWith("BAT"))) {
+            m_batteryPath = supplyPath;
+            continue;
+        }
+
+        if (m_acPath.isEmpty() &&
+            (supplyType == "Mains" || supplyType == "USB" || supplyName.startsWith("AC") || supplyName.startsWith("ADP"))) {
+            m_acPath = supplyPath;
+        }
+    }
 }
 
 void SysBackend::setupBatteryUpower() {
@@ -351,24 +375,55 @@ void SysBackend::fetchCurrentVolume() {
 
 // 4. brightness
 void SysBackend::setupBrightness() {
-    QString basePath = "/sys/class/backlight/intel_backlight";
-    QFile maxFile(basePath + "/max_brightness");
-    if (maxFile.open(QIODevice::ReadOnly)) {
-        m_maxBrightness = QString::fromUtf8(maxFile.readAll()).trimmed().toDouble();
-        maxFile.close();
+    detectBacklightPath();
+    if (m_backlightPath.isEmpty()) return;
+
+    const QString maxBrightnessPath = m_backlightPath + "/max_brightness";
+    const QString brightnessPath = m_backlightPath + "/brightness";
+
+    const QString maxBrightnessValue = readSysfsTextFile(maxBrightnessPath);
+    if (!maxBrightnessValue.isEmpty()) {
+        m_maxBrightness = maxBrightnessValue.toDouble();
     }
 
-    QFile bFile(basePath + "/brightness");
-    if (bFile.exists()) {
-        m_brightnessWatcher = new QFileSystemWatcher(this);
-        m_brightnessWatcher->addPath(basePath + "/brightness");
-        connect(m_brightnessWatcher, &QFileSystemWatcher::fileChanged, this, &SysBackend::updateBrightness);
-        updateBrightness();
+    QFile bFile(brightnessPath);
+    if (!bFile.exists()) return;
+
+    m_brightnessWatcher = new QFileSystemWatcher(this);
+    m_brightnessWatcher->addPath(brightnessPath);
+    connect(m_brightnessWatcher, &QFileSystemWatcher::fileChanged, this, &SysBackend::updateBrightness);
+    updateBrightness();
+}
+
+void SysBackend::detectBacklightPath() {
+    m_backlightPath.clear();
+
+    const QDir dir("/sys/class/backlight");
+    const QFileInfoList backlights = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+
+    double bestMaxBrightness = -1.0;
+    for (const QFileInfo &backlightInfo : backlights) {
+        const QString candidatePath = backlightInfo.absoluteFilePath();
+        const QString maxBrightnessValue = readSysfsTextFile(candidatePath + "/max_brightness");
+        const QString brightnessValue = readSysfsTextFile(candidatePath + "/brightness");
+
+        if (maxBrightnessValue.isEmpty() || brightnessValue.isEmpty()) continue;
+
+        bool ok = false;
+        const double maxBrightness = maxBrightnessValue.toDouble(&ok);
+        if (!ok || maxBrightness <= 0) continue;
+
+        if (maxBrightness > bestMaxBrightness) {
+            bestMaxBrightness = maxBrightness;
+            m_backlightPath = candidatePath;
+        }
     }
 }
 
 void SysBackend::updateBrightness() {
-    QFile bFile("/sys/class/backlight/intel_backlight/brightness");
+    if (m_backlightPath.isEmpty()) return;
+
+    QFile bFile(m_backlightPath + "/brightness");
     if (bFile.open(QIODevice::ReadOnly)) {
         double current = QString::fromUtf8(bFile.readAll()).trimmed().toDouble();
         bFile.close();

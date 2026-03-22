@@ -60,6 +60,9 @@ private:
     void setupKeyboard();
     bool queryBluetoothAudioConnected();
     void checkDefaultAudioDevice();
+    void detectPowerSupplyPaths();
+    void detectBacklightPath();
+    QString readSysfsTextFile(const QString &path) const;
     void updateBatteryState(int capacity, const QString &statusString);
     QString upowerStateToBatteryStatus(uint state) const;
 
@@ -75,6 +78,7 @@ private:
 
     QString m_batteryPath;
     QString m_acPath;
+    QString m_backlightPath;
     int m_batteryCap;
     QString m_batteryStatus;
     QString m_upowerBatteryPath;
