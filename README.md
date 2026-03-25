@@ -79,7 +79,7 @@ https://github.com/user-attachments/assets/d05c8da3-e84e-4a5e-ac06-b6ea97578781
 
 - custom scripts
 
->The control center expects the following scripts to exist in ~/.config/quickshell/: wifi-menu.sh, bluetooth-menu.sh, wallpaper-switch.sh, powermenu.
+>Please rewrite the script path in UserConfig.qml
 
 ### Compile & run:
 
@@ -113,7 +113,7 @@ QML2_IMPORT_PATH=~/.config/quickshell quickshell
 
 ## Important thing
 
-- **For custom scripts, please make your own and change the path in shell.qml:465 (check Comment)**
+- **For custom scripts, please make your own and change the path in UserConfig.qml**
 
 - **The backend is hardcoded to read /sys/class/backlight/intel_backlight/. If you are using AMD or a different backlight driver, please update the path (SysBackend.cpp:353).**
 
