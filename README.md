@@ -97,7 +97,7 @@ git clone https://github.com/enhaoswen/Dynamic-Island-on-Hyprland.git && cd Dyna
 mkdir build && cd build && cmake .. && make -j$(nproc)
 mkdir -p ~/.config/quickshell/IslandBackend
 mv *.so qmldir ~/.config/quickshell/IslandBackend/
-mv ../*.qml ~/.config/quickshell/
+cp ../*.qml ~/.config/quickshell/
 ```
 
 - Clean 
