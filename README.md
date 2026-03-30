@@ -98,10 +98,10 @@ git clone https://github.com/enhaoswen/Dynamic-Island-on-Hyprland.git && cd Dyna
 - Build 
 
 ```bash
-mkdir build && cd build && cmake .. && make -j$(nproc)
-mkdir -p ~/.config/quickshell/IslandBackend
-mv *.so qmldir ~/.config/quickshell/IslandBackend/
-cp ../*.qml ~/.config/quickshell/
+mkdir -p build && cd build && cmake .. && make -j$(nproc)
+mkdir -p ~/.config/quickshell/dynamic_island
+mv *.so qmldir ~/.config/quickshell/dynamic_island/
+cp ../*.qml ~/.config/quickshell/dynamic_island/
 ```
 
 - Clean 
@@ -112,7 +112,7 @@ cd ../.. && rm -rf Dynamic-Island-on-Hyprland
 
 - To run in Hyprland:
 ```bash
-QML2_IMPORT_PATH=~/.config/quickshell quickshell
+QML2_IMPORT_PATH=~/.config/quickshell quickshell -p ~/.config/quickshell/dynamic_island/main.qml
 ```
 
 ## Important thing
