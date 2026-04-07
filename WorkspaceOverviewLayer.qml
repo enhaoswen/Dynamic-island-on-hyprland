@@ -46,6 +46,12 @@ Item {
     readonly property real outerPadding: 14
     readonly property real largeWorkspaceRadius: 30
     readonly property real smallWorkspaceRadius: 16
+    readonly property int workspaceOverviewCellAcceptedButtons: userConfig.mouseButtonsMask(userConfig.workspaceOverviewWorkspaceActivateButton)
+    readonly property int workspaceOverviewWindowAcceptedButtons: userConfig.mouseButtonsMask([
+        userConfig.workspaceOverviewWindowDragButton,
+        userConfig.workspaceOverviewWindowFocusButton,
+        userConfig.workspaceOverviewWindowCloseButton
+    ])
     readonly property color activeBorderColor: "#73d4ff"
     readonly property color cardColor: "#ee17181b"
     readonly property color cardBorderColor: "#33ffffff"
@@ -241,9 +247,11 @@ Item {
 
                                 MouseArea {
                                     anchors.fill: parent
-                                    acceptedButtons: Qt.LeftButton
+                                    acceptedButtons: root.workspaceOverviewCellAcceptedButtons
 
-                                    onPressed: {
+                                    onPressed: (mouse) => {
+                                        if (mouse.button !== userConfig.mouseButton(userConfig.workspaceOverviewWorkspaceActivateButton))
+                                            return;
                                         if (root.draggingFromWorkspace !== -1)
                                             return;
 
@@ -356,16 +364,18 @@ Item {
 
                             anchors.fill: parent
                             hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                            drag.target: parent
+                            acceptedButtons: root.workspaceOverviewWindowAcceptedButtons
+                            drag.target: draggingWindow ? parent : null
 
                             property bool movedWindow: false
+                            property bool draggingWindow: false
 
                             onPressed: (mouse) => {
-                                if (mouse.button !== Qt.LeftButton)
+                                if (mouse.button !== userConfig.mouseButton(userConfig.workspaceOverviewWindowDragButton))
                                     return;
 
                                 movedWindow = false;
+                                draggingWindow = true;
                                 root.draggingFromWorkspace = windowTile.windowData && windowTile.windowData.workspace
                                     ? windowTile.windowData.workspace.id
                                     : -1;
@@ -376,7 +386,7 @@ Item {
                             }
 
                             onPositionChanged: {
-                                if (!(pressedButtons & Qt.LeftButton))
+                                if (!draggingWindow || !(pressedButtons & userConfig.mouseButton(userConfig.workspaceOverviewWindowDragButton)))
                                     return;
 
                                 root.draggingTargetWorkspace = root.workspaceAtPoint(
@@ -391,6 +401,10 @@ Item {
                             }
 
                             onReleased: {
+                                if (!draggingWindow)
+                                    return;
+
+                                draggingWindow = false;
                                 const targetWorkspace = root.workspaceAtPoint(
                                     windowTile.x + windowTile.width / 2,
                                     windowTile.y + windowTile.height / 2
@@ -415,6 +429,13 @@ Item {
                                 }
                             }
 
+                            onCanceled: {
+                                draggingWindow = false;
+                                windowTile.Drag.active = false;
+                                root.draggingFromWorkspace = -1;
+                                root.draggingTargetWorkspace = -1;
+                            }
+
                             onClicked: (mouse) => {
                                 if (!windowTile.windowData)
                                     return;
@@ -423,11 +444,11 @@ Item {
                                     return;
                                 }
 
-                                if (mouse.button === Qt.LeftButton) {
+                                if (mouse.button === userConfig.mouseButton(userConfig.workspaceOverviewWindowFocusButton)) {
                                     root.closeRequested();
                                     Hyprland.dispatch("focuswindow address:" + windowTile.windowData.address);
                                     mouse.accepted = true;
-                                } else if (mouse.button === Qt.MiddleButton) {
+                                } else if (mouse.button === userConfig.mouseButton(userConfig.workspaceOverviewWindowCloseButton)) {
                                     Hyprland.dispatch("closewindow address:" + windowTile.windowData.address);
                                     mouse.accepted = true;
                                 }

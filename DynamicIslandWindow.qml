@@ -42,6 +42,11 @@ PanelWindow {
     readonly property string textFontFamily: userConfig.textFontFamily
     readonly property string heroFontFamily: userConfig.heroFontFamily
     readonly property string timeFontFamily: userConfig.timeFontFamily
+    readonly property int dynamicIslandAcceptedButtons: userConfig.mouseButtonsMask([
+        userConfig.dynamicIslandSwipeButton,
+        userConfig.dynamicIslandPrimaryButton,
+        userConfig.dynamicIslandSecondaryButton
+    ])
     readonly property real overviewWallpaperScale: 0.18
     readonly property real overviewWallpaperCacheScaleMultiplier: 1.75
     readonly property int overviewWallpaperTargetWidth: {
@@ -96,6 +101,27 @@ PanelWindow {
         }
 
         closeOverview();
+    }
+
+    function openOverviewEverywhere() {
+        if (shellRootController && shellRootController.openOverviewAll) {
+            shellRootController.openOverviewAll();
+            return;
+        }
+
+        openOverview();
+    }
+
+    function toggleOverviewEverywhere() {
+        if (shellRootController && shellRootController.toggleOverviewAll) {
+            shellRootController.toggleOverviewAll();
+            return;
+        }
+
+        if (overviewLoaderActive)
+            closeOverviewEverywhere();
+        else
+            openOverviewEverywhere();
     }
 
     function normalizeWorkspaceId(rawValue) {
@@ -286,15 +312,77 @@ PanelWindow {
         Keys.onPressed: (event) => {
             if (!root.overviewVisible) return;
 
-            if (event.key === Qt.Key_Escape) {
+            if (userConfig.overviewCloseKey && event.key === userConfig.overviewCloseKey) {
                 root.closeOverviewEverywhere();
                 event.accepted = true;
-            } else if (event.key === Qt.Key_Left) {
+            } else if (userConfig.overviewPreviousWorkspaceKey && event.key === userConfig.overviewPreviousWorkspaceKey) {
                 Hyprland.dispatch("workspace r-1");
                 event.accepted = true;
-            } else if (event.key === Qt.Key_Right) {
+            } else if (userConfig.overviewNextWorkspaceKey && event.key === userConfig.overviewNextWorkspaceKey) {
                 Hyprland.dispatch("workspace r+1");
                 event.accepted = true;
+            }
+        }
+
+        function handleConfiguredClickAction(actionName) {
+            switch (actionName) {
+            case "":
+            case "none":
+                return;
+            case "toggleExpandedPlayer":
+                if (islandState === "expanded") {
+                    autoHideTimer.stop();
+                    smartRestoreState();
+                } else {
+                    showExpandedPlayer(false);
+                }
+                return;
+            case "openExpandedPlayer":
+                showExpandedPlayer(false);
+                return;
+            case "closeExpandedPlayer":
+                if (islandState === "expanded")
+                    smartRestoreState();
+                return;
+            case "toggleControlCenter":
+                if (islandState === "control_center")
+                    smartRestoreState();
+                else
+                    showControlCenter();
+                return;
+            case "openControlCenter":
+                showControlCenter();
+                return;
+            case "closeControlCenter":
+                if (islandState === "control_center")
+                    smartRestoreState();
+                return;
+            case "toggleOverview":
+                root.toggleOverviewEverywhere();
+                return;
+            case "openOverview":
+                root.openOverviewEverywhere();
+                return;
+            case "closeOverview":
+                root.closeOverviewEverywhere();
+                return;
+            case "toggleLyrics":
+                if (restingState === "lyrics")
+                    showTimeCapsule();
+                else
+                    showLyricsCapsule();
+                return;
+            case "showLyrics":
+                showLyricsCapsule();
+                return;
+            case "showTime":
+                showTimeCapsule();
+                return;
+            case "restoreRestingCapsule":
+                smartRestoreState();
+                return;
+            default:
+                console.warn("Unknown Dynamic Island click action:", actionName);
             }
         }
 
@@ -955,7 +1043,7 @@ PanelWindow {
                 anchors.fill: parent
                 z: -1
                 enabled: !root.overviewVisible
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: root.dynamicIslandAcceptedButtons
                 preventStealing: true
                 property real swipeStartX: 0
                 property real swipeStartY: 0
@@ -975,7 +1063,8 @@ PanelWindow {
                 onPressed: (mouse) => {
                     swipeStartX = mouse.x;
                     swipeStartY = mouse.y;
-                    swipeArmed = mouse.button === Qt.LeftButton && islandContainer.canShowLyricsSwipe;
+                    swipeArmed = mouse.button === userConfig.mouseButton(userConfig.dynamicIslandSwipeButton)
+                        && islandContainer.canShowLyricsSwipe;
                     swipeStartProgress = islandContainer.islandState === "lyrics" ? 1 : 0;
                     swipePassedThreshold = false;
                     swipeMoved = false;
@@ -1028,20 +1117,13 @@ PanelWindow {
                         return;
                     }
 
-                    if (mouse.button === Qt.LeftButton) {
-                        if (islandContainer.islandState === "expanded") {
-                            autoHideTimer.stop();
-                            islandContainer.smartRestoreState();
-                        } else {
-                            islandContainer.showExpandedPlayer(false);
-                        }
+                    if (mouse.button === userConfig.mouseButton(userConfig.dynamicIslandPrimaryButton)) {
+                        islandContainer.handleConfiguredClickAction(userConfig.dynamicIslandPrimaryAction);
                         return;
                     }
 
-                    if (islandContainer.islandState === "control_center") {
-                        islandContainer.smartRestoreState();
-                    } else {
-                        islandContainer.showControlCenter();
+                    if (mouse.button === userConfig.mouseButton(userConfig.dynamicIslandSecondaryButton)) {
+                        islandContainer.handleConfiguredClickAction(userConfig.dynamicIslandSecondaryAction);
                     }
                 }
             }

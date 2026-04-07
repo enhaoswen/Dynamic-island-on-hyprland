@@ -1,8 +1,14 @@
+import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 Scope {
     id: shellRoot
+
+    UserConfig {
+        id: userConfig
+    }
 
     function forEachWindow(callback) {
         const windows = panelVariants.instances ? panelVariants.instances : [];
@@ -59,6 +65,21 @@ Scope {
                 if (window && window.prewarmWallpaperCache)
                     window.prewarmWallpaperCache();
             });
+        }
+    }
+
+    Loader {
+        active: userConfig.overviewGlobalShortcutEnabled
+
+        sourceComponent: Component {
+            GlobalShortcut {
+                appid: userConfig.overviewGlobalShortcutAppid
+                name: userConfig.overviewGlobalShortcutName
+                description: userConfig.overviewGlobalShortcutDescription
+                triggerDescription: userConfig.overviewGlobalShortcutTriggerDescription
+
+                onPressed: shellRoot.toggleOverviewAll()
+            }
         }
     }
 
