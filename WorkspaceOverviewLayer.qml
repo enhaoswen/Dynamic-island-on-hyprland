@@ -28,6 +28,10 @@ Item {
     property bool orderBottomUp: false
     property bool centerIcons: true
 
+    readonly property real wallpaperCacheScaleMultiplier: 1.75
+    readonly property int cachedWallpaperWidth: Math.max(1, Math.round(workspaceImplicitWidth * wallpaperCacheScaleMultiplier))
+    readonly property int cachedWallpaperHeight: Math.max(1, Math.round(workspaceImplicitHeight * wallpaperCacheScaleMultiplier))
+
     readonly property var monitor: screen ? Hyprland.monitorFor(screen) : Hyprland.focusedMonitor
     readonly property var monitorData: findMonitorData(monitor ? monitor.id : -1)
     readonly property int workspacesShown: rows * columns
@@ -222,6 +226,8 @@ Item {
                                         anchors.fill: parent
                                         source: root.wallpaperPath
                                         fillMode: Image.PreserveAspectCrop
+                                        sourceSize.width: root.cachedWallpaperWidth
+                                        sourceSize.height: root.cachedWallpaperHeight
                                         asynchronous: true
                                         cache: false
                                         opacity: 0.92
