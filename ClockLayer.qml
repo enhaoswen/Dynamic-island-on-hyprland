@@ -1,8 +1,12 @@
 import QtQuick
 
 Item {
+    UserConfig {
+        id: userConfig
+    }
+
     property string currentTime: "00:00"
-    property string heroFontFamily: "Inter Display"
+    property string heroFontFamily: userConfig.heroFontFamily
     property bool showCondition: false
     property real contentOffsetX: 0
     property int textPixelSize: 18

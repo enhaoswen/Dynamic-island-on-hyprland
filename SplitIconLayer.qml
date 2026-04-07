@@ -1,8 +1,12 @@
 import QtQuick
 
 Item {
+    UserConfig {
+        id: userConfig
+    }
+
     property string iconText: ""
-    property string iconFontFamily: "JetBrainsMono Nerd Font"
+    property string iconFontFamily: userConfig.iconFontFamily
     property bool slideFromLyrics: false
     property real transitionProgress: 0
     property bool showCondition: false

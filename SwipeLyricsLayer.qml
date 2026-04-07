@@ -3,10 +3,14 @@ import QtQuick
 Item {
     id: root
 
+    UserConfig {
+        id: userConfig
+    }
+
     property string lyricText: ""
     property string timeText: ""
-    property string textFontFamily: "Inter"
-    property string timeFontFamily: "Inter Display"
+    property string textFontFamily: userConfig.textFontFamily
+    property string timeFontFamily: userConfig.timeFontFamily
     property bool showCondition: false
     property bool showSecondaryText: true
     property real transitionProgress: 0

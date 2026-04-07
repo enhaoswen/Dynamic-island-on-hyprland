@@ -1,12 +1,16 @@
 import QtQuick
 
 Item {
+    UserConfig {
+        id: userConfig
+    }
+
     property string iconText: ""
     property real progress: -1
     property string customText: ""
-    property string iconFontFamily: "JetBrainsMono Nerd Font"
-    property string textFontFamily: "Inter"
-    property string heroFontFamily: "Inter Display"
+    property string iconFontFamily: userConfig.iconFontFamily
+    property string textFontFamily: userConfig.textFontFamily
+    property string heroFontFamily: userConfig.heroFontFamily
     property bool slideFromLyrics: false
     property real transitionProgress: 0
     readonly property bool showProgress: progress >= 0

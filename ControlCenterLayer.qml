@@ -9,9 +9,9 @@ Item {
     }
 
     property bool showCondition: false
-    property string iconFontFamily: "JetBrainsMono Nerd Font"
-    property string textFontFamily: "Inter"
-    property string heroFontFamily: "Inter Display"
+    property string iconFontFamily: userConfig.iconFontFamily
+    property string textFontFamily: userConfig.textFontFamily
+    property string heroFontFamily: userConfig.heroFontFamily
     property string currentTime: "00:00"
     property string currentDateLabel: ""
     property int batteryCapacity: 0

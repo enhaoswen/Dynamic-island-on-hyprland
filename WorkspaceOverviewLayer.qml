@@ -9,12 +9,16 @@ import Quickshell.Widgets
 Item {
     id: root
 
+    UserConfig {
+        id: userConfig
+    }
+
     required property var screen
     required property var hyprlandData
 
     property bool showCondition: false
-    property string textFontFamily: "Inter"
-    property string heroFontFamily: "Inter Display"
+    property string textFontFamily: userConfig.textFontFamily
+    property string heroFontFamily: userConfig.heroFontFamily
     property string wallpaperPath: "/home/dan/.config/hypr/wallpaper.png"
     property real windowCornerRadius: 15
     property real scale: 0.18

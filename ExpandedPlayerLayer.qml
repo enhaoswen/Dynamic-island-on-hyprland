@@ -4,6 +4,10 @@ import Quickshell.Services.Mpris
 Item {
     signal controlPressed()
 
+    UserConfig {
+        id: userConfig
+    }
+
     property bool showCondition: false
     property string currentArtUrl: ""
     property string currentTrack: ""
@@ -12,8 +16,8 @@ Item {
     property string timeTotal: "0:00"
     property real trackProgress: 0
     property var activePlayer: null
-    property string iconFontFamily: "JetBrainsMono Nerd Font"
-    property string textFontFamily: "Inter"
+    property string iconFontFamily: userConfig.iconFontFamily
+    property string textFontFamily: userConfig.textFontFamily
     property real visualizerPhase: 0
 
     readonly property bool isPlaying: activePlayer && activePlayer.playbackState === MprisPlaybackState.Playing

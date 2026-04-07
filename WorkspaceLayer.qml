@@ -1,9 +1,13 @@
 import QtQuick
 
 Item {
+    UserConfig {
+        id: userConfig
+    }
+
     property int workspaceId: 1
     property string displayText: "Workspace " + workspaceId
-    property string textFontFamily: "Inter"
+    property string textFontFamily: userConfig.textFontFamily
     property bool showCondition: false
     property int textPixelSize: 16
     property bool slideFromLyrics: false

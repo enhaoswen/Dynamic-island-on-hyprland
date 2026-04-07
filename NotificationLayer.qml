@@ -1,14 +1,18 @@
 import QtQuick
 
 Item {
+    UserConfig {
+        id: userConfig
+    }
+
     property bool showCondition: false
     property string appName: ""
     property string summary: ""
     property string body: ""
     property string iconText: ""
-    property string iconFontFamily: "JetBrainsMono Nerd Font"
-    property string textFontFamily: "Inter"
-    property string heroFontFamily: "Inter Display"
+    property string iconFontFamily: userConfig.iconFontFamily
+    property string textFontFamily: userConfig.textFontFamily
+    property string heroFontFamily: userConfig.heroFontFamily
 
     readonly property string contentText: {
         if (summary !== "" && body !== "" && body !== summary) return summary + "  " + body;

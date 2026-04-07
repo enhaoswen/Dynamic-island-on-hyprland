@@ -29,9 +29,10 @@ PanelWindow {
     focusable: root.overviewVisible
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: root.overviewVisible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
-    readonly property string iconFontFamily: "JetBrainsMono Nerd Font"
-    readonly property string textFontFamily: "Inter"
-    readonly property string heroFontFamily: "Inter Display"
+    readonly property string iconFontFamily: userConfig.iconFontFamily
+    readonly property string textFontFamily: userConfig.textFontFamily
+    readonly property string heroFontFamily: userConfig.heroFontFamily
+    readonly property string timeFontFamily: userConfig.timeFontFamily
     readonly property real overviewCapsuleWidth: islandContainer.overviewView ? islandContainer.overviewView.width : 760
     readonly property real overviewCapsuleHeight: islandContainer.overviewView ? islandContainer.overviewView.height : 308
     readonly property real overviewCapsuleRadius: islandContainer.overviewView
@@ -953,7 +954,7 @@ PanelWindow {
                 lyricText: islandContainer.lyricsDisplayText
                 timeText: timeObj.currentTime
                 textFontFamily: root.textFontFamily
-                timeFontFamily: root.heroFontFamily
+                timeFontFamily: root.timeFontFamily
                 textPixelSize: 16
                 minimumWidth: 220
                 maximumWidth: Math.max(220, root.width - 48)

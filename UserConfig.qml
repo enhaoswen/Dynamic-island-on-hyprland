@@ -5,6 +5,10 @@ QtObject {
 
     property string wallpaperPath: "/home/dan/.config/hypr/wallpaper.png"
     property real workspaceOverviewWindowRadius: 12
+    property string iconFontFamily: "JetBrainsMono Nerd Font"
+    property string textFontFamily: "Inter"
+    property string heroFontFamily: "Inter Display"
+    property string timeFontFamily: "Inter Display"
 
     property var scriptPaths: ({
         button_1: "/home/dan/.local/bin/quickshell_script/wifi-menu.sh",

@@ -1,9 +1,13 @@
 import QtQuick
 
 Item {
+    UserConfig {
+        id: userConfig
+    }
+
     property string leadingText: ""
     property string trailingText: ""
-    property string heroFontFamily: "Inter Display"
+    property string heroFontFamily: userConfig.heroFontFamily
     property bool showCondition: false
     property real transitionProgress: 0
     property int textPixelSize: 18
