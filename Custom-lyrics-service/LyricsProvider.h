@@ -1,15 +1,18 @@
 #pragma once
 
-#include <QDBusInterface>
 #include <QObject>
+#include <QString>
 
 class LyricsProvider : public QObject {
   Q_OBJECT
 
-private:
-  QDBusInterface *m_mprisInterface;
-
 public:
   explicit LyricsProvider(QObject *parent = nullptr);
   Q_INVOKABLE void fetchCurrentSong();
+  Q_INVOKABLE QString currentTitle() const;
+  Q_INVOKABLE QString currentArtist() const;
+
+private:
+  QString m_currentTitle;
+  QString m_currentArtist;
 };
