@@ -289,7 +289,6 @@ PanelWindow {
         readonly property int defaultAutoHideInterval: 1250
         readonly property int notificationAutoHideInterval: 4200
         readonly property int swipeAnimationDuration: 220
-        readonly property real sideSwipePreviewStrength: 0.7
         readonly property bool blocksTransientSplit: islandState === "expanded"
             || islandState === "control_center"
             || islandState === "notification"
@@ -312,18 +311,26 @@ PanelWindow {
         readonly property bool customSwipeVisible: !root.overviewVisible
             && hasCustomLeftItems
             && (
-                islandState === "custom"
-                || (islandState === "normal" && swipeTransitionProgress < 0)
-                || (islandState === "split" && splitOriginSide === "left")
-                || (islandState === "long_capsule"
-                    && (workspaceOriginSide === "left" || swipeTransitionProgress < 0))
+                capsuleMouseArea.sideSwipeInteractive
+                ? swipeTransitionProgress < 0
+                : (
+                    islandState === "custom"
+                    || (islandState === "normal" && swipeTransitionProgress < 0)
+                    || (islandState === "split" && splitOriginSide === "left")
+                    || (islandState === "long_capsule"
+                        && (workspaceOriginSide === "left" || swipeTransitionProgress < 0))
+                )
             )
         readonly property bool lyricsSwipeVisible: !root.overviewVisible && (
-            islandState === "lyrics"
-            || (islandState === "normal" && swipeTransitionProgress >= 0)
-            || (islandState === "split" && splitOriginSide === "right")
-            || (islandState === "long_capsule"
-                && (workspaceOriginSide === "right" || swipeTransitionProgress > 0))
+            capsuleMouseArea.sideSwipeInteractive
+            ? swipeTransitionProgress >= 0
+            : (
+                islandState === "lyrics"
+                || (islandState === "normal" && swipeTransitionProgress >= 0)
+                || (islandState === "split" && splitOriginSide === "right")
+                || (islandState === "long_capsule"
+                    && (workspaceOriginSide === "right" || swipeTransitionProgress > 0))
+            )
         )
         readonly property bool expandedLayerVisible: !root.overviewVisible && islandState === "expanded"
         readonly property bool notificationLayerVisible: !root.overviewVisible && islandState === "notification"
@@ -702,6 +709,96 @@ PanelWindow {
             if (progressValue <= -0.5) return customCapsuleWidth;
             if (progressValue >= 0.5) return lyricsCapsuleWidth;
             return 140;
+        }
+
+        function customSideSwipeDragDistance() {
+            const view = customSwipeLoader.item;
+            if (view && view.dragDistance > 0) return view.dragDistance;
+            return Math.max(140, customCapsuleWidth + 4);
+        }
+
+        function lyricsSideSwipeDragDistance() {
+            const view = lyricsSwipeLoader.item;
+            if (view && view.dragDistance > 0) return view.dragDistance;
+            return Math.max(140, lyricsCapsuleWidth + 2);
+        }
+
+        function sideSwipeDragDistanceForDirection(direction) {
+            if (direction === "left") return customSideSwipeDragDistance();
+            if (direction === "right") return lyricsSideSwipeDragDistance();
+            return 140;
+        }
+
+        function advanceSideSwipeProgress(currentProgress, deltaX) {
+            const minProgress = hasCustomLeftItems ? -1 : 0;
+            let nextProgress = Math.max(minProgress, Math.min(1, currentProgress));
+            let remainingDelta = deltaX;
+
+            if (remainingDelta > 0) {
+                if (nextProgress < 0) {
+                    const leftDistance = Math.max(1, sideSwipeDragDistanceForDirection("left"));
+                    const progressToCenter = Math.min(-nextProgress, remainingDelta / leftDistance);
+                    nextProgress += progressToCenter;
+                    remainingDelta -= progressToCenter * leftDistance;
+                }
+
+                if (remainingDelta > 0 && nextProgress < 1) {
+                    const rightDistance = Math.max(1, sideSwipeDragDistanceForDirection("right"));
+                    nextProgress = Math.min(1, nextProgress + remainingDelta / rightDistance);
+                }
+            } else if (remainingDelta < 0) {
+                if (nextProgress > 0) {
+                    const rightDistance = Math.max(1, sideSwipeDragDistanceForDirection("right"));
+                    const progressToCenter = Math.min(nextProgress, -remainingDelta / rightDistance);
+                    nextProgress -= progressToCenter;
+                    remainingDelta += progressToCenter * rightDistance;
+                }
+
+                if (remainingDelta < 0 && nextProgress > minProgress) {
+                    const leftDistance = Math.max(1, sideSwipeDragDistanceForDirection("left"));
+                    nextProgress = Math.max(minProgress, nextProgress + remainingDelta / leftDistance);
+                }
+            }
+
+            return Math.max(minProgress, Math.min(1, nextProgress));
+        }
+
+        function resolveSideSwipeSettle(startProgress, finalProgress) {
+            let settleAction = "";
+            let settleProgress = sideSwipeRestProgressForProgress(startProgress);
+            let settleWidth = sideSwipeRestWidthForProgress(startProgress);
+
+            if (finalProgress >= 0.56) {
+                settleAction = "lyrics";
+                settleProgress = 1;
+                settleWidth = lyricsCapsuleWidth;
+            } else if (hasCustomLeftItems && finalProgress <= -0.56) {
+                settleAction = "custom";
+                settleProgress = -1;
+                settleWidth = customCapsuleWidth;
+            } else if (startProgress <= -0.5) {
+                if (finalProgress >= -0.44) {
+                    settleAction = "time";
+                    settleProgress = 0;
+                    settleWidth = 140;
+                }
+            } else if (startProgress >= 0.5) {
+                if (finalProgress <= 0.44) {
+                    settleAction = "time";
+                    settleProgress = 0;
+                    settleWidth = 140;
+                }
+            } else {
+                settleAction = "time";
+                settleProgress = 0;
+                settleWidth = 140;
+            }
+
+            return {
+                action: settleAction,
+                progress: settleProgress,
+                width: settleWidth
+            };
         }
 
         function beginSideSwipeSettle(targetWidth) {
@@ -1436,39 +1533,18 @@ PanelWindow {
                     return 19;
                 }
             }
-            function sideSwipeEndpointProgress(startProgress, currentProgress) {
-                if (startProgress <= -0.5 || startProgress >= 0.5) return 0;
-                if (currentProgress < -0.001 && islandContainer.hasCustomLeftItems) return -1;
-                if (currentProgress > 0.001) return 1;
-                return 0;
+            function sideSwipeWidthForProgress(progressValue) {
+                if (progressValue < 0)
+                    return 140 + (islandContainer.customCapsuleWidth - 140)
+                        * islandContainer.clamp01(-progressValue);
+                if (progressValue > 0)
+                    return 140 + (islandContainer.lyricsCapsuleWidth - 140)
+                        * islandContainer.clamp01(progressValue);
+                return 140;
             }
-            function sideSwipeEndpointWidth(startProgress, currentProgress, sourceWidth) {
-                if (startProgress <= -0.5 || startProgress >= 0.5) return 140;
-                if (currentProgress < -0.001 && islandContainer.hasCustomLeftItems)
-                    return islandContainer.customCapsuleWidth;
-                if (currentProgress > 0.001)
-                    return islandContainer.lyricsCapsuleWidth;
-                return sourceWidth;
-            }
-            readonly property real sideSwipePreviewWidth: {
-                const sourceWidth = capsuleMouseArea.swipeStartWidth > 0
-                    ? capsuleMouseArea.swipeStartWidth
-                    : mainCapsule.baseTargetWidth;
-                const startProgress = capsuleMouseArea.swipeStartProgress;
-                const currentProgress = islandContainer.swipeTransitionProgress;
-                const endpointProgress = mainCapsule.sideSwipeEndpointProgress(startProgress, currentProgress);
-                const span = Math.abs(endpointProgress - startProgress);
-
-                if (span < 0.001) return sourceWidth;
-
-                const transitionAmount = islandContainer.clamp01(Math.abs(currentProgress - startProgress) / span);
-                const endpointWidth = mainCapsule.sideSwipeEndpointWidth(startProgress, currentProgress, sourceWidth);
-
-                return sourceWidth
-                    + (endpointWidth - sourceWidth)
-                    * islandContainer.sideSwipePreviewStrength
-                    * transitionAmount;
-            }
+            readonly property real sideSwipePreviewWidth: mainCapsule.sideSwipeWidthForProgress(
+                islandContainer.swipeTransitionProgress
+            )
             color: root.overviewVisible ? root.overviewCapsuleColor : "black"
             y: 4
             anchors.horizontalCenter: parent.horizontalCenter
@@ -1523,7 +1599,7 @@ PanelWindow {
                 property real swipeStartX: 0
                 property real swipeStartY: 0
                 property real swipeStartProgress: 0
-                property real swipeStartWidth: 0
+                property real swipeLastX: 0
                 property bool swipeArmed: false
                 property bool swipeMoved: false
                 property bool sideSwipeInteractive: false
@@ -1544,7 +1620,7 @@ PanelWindow {
                     swipeArmed = mouse.button === userConfig.mouseButton(userConfig.dynamicIslandSwipeButton)
                         && islandContainer.canShowSideSwipe;
                     swipeStartProgress = islandContainer.swipeTransitionProgress;
-                    swipeStartWidth = mainCapsule.width;
+                    swipeLastX = mappedPoint.x;
                     swipeMoved = false;
                     sideSwipeInteractive = swipeArmed;
                     islandContainer.swipeTransitionProgress = swipeStartProgress;
@@ -1554,13 +1630,16 @@ PanelWindow {
                     if (!pressed || !swipeArmed || suppressNextClick) return;
 
                     const mappedPoint = capsuleMouseArea.mapToItem(islandContainer, mouse.x, mouse.y);
-                    const deltaX = mappedPoint.x - swipeStartX;
+                    const deltaX = mappedPoint.x - swipeLastX;
                     const deltaY = Math.abs(mappedPoint.y - swipeStartY);
                     const adjustedDeltaX = deltaY < 24 ? deltaX : 0;
-                    const minProgress = islandContainer.hasCustomLeftItems ? -1 : 0;
-                    const nextProgress = Math.max(minProgress, Math.min(1, swipeStartProgress + adjustedDeltaX / 108));
+                    const nextProgress = islandContainer.advanceSideSwipeProgress(
+                        islandContainer.swipeTransitionProgress,
+                        adjustedDeltaX
+                    );
 
                     swipeMoved = swipeMoved || Math.abs(nextProgress - swipeStartProgress) > 0.03 || deltaY > 6;
+                    swipeLastX = mappedPoint.x;
                     islandContainer.swipeTransitionProgress = nextProgress;
                     mainCapsule.displayedWidth = mainCapsule.sideSwipePreviewWidth;
                 }
@@ -1570,40 +1649,27 @@ PanelWindow {
                         suppressNextClick = true;
                         swipeSuppressReset.restart();
                     }
-                    const fallbackProgress = islandContainer.sideSwipeRestProgressForProgress(swipeStartProgress);
-                    let settleWidth = islandContainer.sideSwipeRestWidthForProgress(swipeStartProgress);
-                    let settleAction = "";
+                    let settleResult = {
+                        action: "",
+                        progress: islandContainer.sideSwipeRestProgressForProgress(swipeStartProgress),
+                        width: islandContainer.sideSwipeRestWidthForProgress(swipeStartProgress)
+                    };
 
-                    if (swipeArmed) {
-                        const finalProgress = islandContainer.swipeTransitionProgress;
-                        if (swipeStartProgress <= -0.5) {
-                            if (finalProgress >= -0.44) {
-                                settleWidth = 140;
-                                settleAction = "time";
-                            }
-                        } else if (swipeStartProgress >= 0.5) {
-                            if (finalProgress <= 0.44) {
-                                settleWidth = 140;
-                                settleAction = "time";
-                            }
-                        } else if (finalProgress <= -0.56 && islandContainer.hasCustomLeftItems) {
-                            settleWidth = islandContainer.customCapsuleWidth;
-                            settleAction = "custom";
-                        } else if (finalProgress >= 0.56) {
-                            settleWidth = islandContainer.lyricsCapsuleWidth;
-                            settleAction = "lyrics";
-                        }
-                    }
+                    if (swipeArmed)
+                        settleResult = islandContainer.resolveSideSwipeSettle(
+                            swipeStartProgress,
+                            islandContainer.swipeTransitionProgress
+                        );
 
                     sideSwipeInteractive = false;
 
                     if (swipeArmed)
-                        islandContainer.beginSideSwipeSettle(settleWidth);
+                        islandContainer.beginSideSwipeSettle(settleResult.width);
                     else
                         mainCapsule.displayedWidth = mainCapsule.baseTargetWidth;
 
                     if (swipeArmed) {
-                        switch (settleAction) {
+                        switch (settleResult.action) {
                         case "time":
                             islandContainer.showTimeCapsule();
                             break;
@@ -1614,10 +1680,10 @@ PanelWindow {
                             islandContainer.showLyricsCapsule();
                             break;
                         default:
-                            islandContainer.swipeTransitionProgress = fallbackProgress;
+                            islandContainer.swipeTransitionProgress = settleResult.progress;
                         }
                     } else {
-                        islandContainer.swipeTransitionProgress = fallbackProgress;
+                        islandContainer.swipeTransitionProgress = settleResult.progress;
                     }
                     swipeArmed = false;
                     swipeMoved = false;
@@ -1658,9 +1724,7 @@ PanelWindow {
                 asynchronous: false
                 visible: active
 
-                onLoaded: {
-                    if (islandContainer.restingState === "custom") islandContainer.syncCustomCapsuleWidth();
-                }
+                onLoaded: islandContainer.syncCustomCapsuleWidth()
 
                 sourceComponent: Component {
                     SwipeCustomInfoLayer {
@@ -1676,9 +1740,7 @@ PanelWindow {
                         showSecondaryText: islandContainer.workspaceOriginSide !== "left"
                             && islandContainer.splitOriginSide !== "left"
                         showCondition: true
-                        onPreferredWidthChanged: {
-                            if (islandContainer.restingState === "custom") islandContainer.syncCustomCapsuleWidth();
-                        }
+                        onPreferredWidthChanged: islandContainer.syncCustomCapsuleWidth()
                     }
                 }
             }
@@ -1690,9 +1752,7 @@ PanelWindow {
                 asynchronous: false
                 visible: active
 
-                onLoaded: {
-                    if (islandContainer.restingState === "lyrics") islandContainer.syncLyricsCapsuleWidth();
-                }
+                onLoaded: islandContainer.syncLyricsCapsuleWidth()
 
                 sourceComponent: Component {
                     SwipeLyricsLayer {
@@ -1707,9 +1767,7 @@ PanelWindow {
                         showSecondaryText: islandContainer.workspaceOriginSide !== "right"
                             && islandContainer.splitOriginSide !== "right"
                         showCondition: true
-                        onPreferredWidthChanged: {
-                            if (islandContainer.restingState === "lyrics") islandContainer.syncLyricsCapsuleWidth();
-                        }
+                        onPreferredWidthChanged: islandContainer.syncLyricsCapsuleWidth()
                     }
                 }
             }

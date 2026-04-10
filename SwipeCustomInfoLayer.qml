@@ -32,10 +32,13 @@ Item {
     readonly property real textWidth: Math.max(0, width - horizontalPadding * 2)
     readonly property real centeredTimeX: horizontalPadding
     readonly property real centeredItemsX: (width - contentRow.implicitWidth) / 2
-    readonly property real panelTravel: Math.max(width, contentRow.implicitWidth + horizontalPadding * 2)
-        + Math.max(hiddenLeftPadding, hiddenRightPadding)
-    readonly property real itemsX: centeredItemsX + (1 - clampedProgress) * panelTravel
-    readonly property real timeX: centeredTimeX - clampedProgress * panelTravel
+    readonly property real timeHiddenLeftX: -textWidth - hiddenLeftPadding
+    readonly property real itemsHiddenRightX: width + hiddenRightPadding
+    readonly property real timeExitDistance: Math.max(0, centeredTimeX - timeHiddenLeftX)
+    readonly property real itemsEntryDistance: Math.max(0, itemsHiddenRightX - centeredItemsX)
+    readonly property real dragDistance: Math.max(timeExitDistance, itemsEntryDistance)
+    readonly property real itemsX: itemsHiddenRightX + (centeredItemsX - itemsHiddenRightX) * clampedProgress
+    readonly property real timeX: centeredTimeX + (timeHiddenLeftX - centeredTimeX) * clampedProgress
     readonly property real preferredWidth: Math.max(
         minimumWidth,
         Math.min(Math.max(minimumWidth, maximumWidth), contentRow.implicitWidth + horizontalPadding * 2 + 28)
