@@ -37,8 +37,8 @@ Item {
     readonly property real timeExitDistance: Math.max(0, centeredTimeX - timeHiddenLeftX)
     readonly property real itemsEntryDistance: Math.max(0, itemsHiddenRightX - centeredItemsX)
     readonly property real dragDistance: Math.max(timeExitDistance, itemsEntryDistance)
-    readonly property real itemsX: itemsHiddenRightX + (centeredItemsX - itemsHiddenRightX) * clampedProgress
-    readonly property real timeX: centeredTimeX + (timeHiddenLeftX - centeredTimeX) * clampedProgress
+    readonly property real itemsX: centeredItemsX + (1 - clampedProgress) * dragDistance
+    readonly property real timeX: centeredTimeX - clampedProgress * dragDistance
     readonly property real preferredWidth: Math.max(
         minimumWidth,
         Math.min(Math.max(minimumWidth, maximumWidth), contentRow.implicitWidth + horizontalPadding * 2 + 28)

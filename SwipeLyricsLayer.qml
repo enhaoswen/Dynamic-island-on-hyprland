@@ -33,8 +33,8 @@ Item {
     readonly property real lyricEntryDistance: Math.max(0, centeredX - lyricHiddenLeftX)
     readonly property real timeExitDistance: Math.max(0, timeHiddenRightX - centeredX)
     readonly property real dragDistance: Math.max(lyricEntryDistance, timeExitDistance)
-    readonly property real lyricX: lyricHiddenLeftX + (centeredX - lyricHiddenLeftX) * clampedProgress
-    readonly property real timeX: centeredX + (timeHiddenRightX - centeredX) * clampedProgress
+    readonly property real lyricX: centeredX - (1 - clampedProgress) * dragDistance
+    readonly property real timeX: centeredX + clampedProgress * dragDistance
     readonly property real preferredWidth: Math.max(
         minimumWidth,
         Math.min(Math.max(minimumWidth, maximumWidth), lyricMetrics.advanceWidth + horizontalPadding * 2 + 28)
