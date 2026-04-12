@@ -101,6 +101,8 @@ Video: https://www.youtube.com/watch?v=SAc6_1Y7QJc
 
 - custom scripts for control center (option)
 
+- cava
+
 >Please rewrite the script path in UserConfig.qml
 
 ## Getting Start
@@ -116,22 +118,12 @@ git clone https://github.com/enhaoswen/Dynamic-Island-on-Hyprland.git && cd Dyna
 ### Build 
 
 ```bash
-cd ~/Downloads/Dynamic-Island-on-Hyprland
-
-cmake -S . -B build
-cmake --build build -j"$(nproc)"
-
-mkdir -p ~/.config/quickshell/dynamic_island
-mkdir -p ~/.config/quickshell/dynamic_island/IslandBackend
-mkdir -p ~/.config/quickshell/dynamic_island/bin
-
-cp ./*.qml ~/.config/quickshell/dynamic_island/
-cp ./bin/* ~/.config/quickshell/dynamic_island/bin/
-
-cp ./build/libIslandBackend.so ~/.config/quickshell/dynamic_island/IslandBackend/
-cp ./build/libIslandBackendplugin.so ~/.config/quickshell/dynamic_island/IslandBackend/
-cp ./build/qmldir ~/.config/quickshell/dynamic_island/IslandBackend/
-cp ./build/IslandBackend.qmltypes ~/.config/quickshell/dynamic_island/IslandBackend/
+cmake -S . -B build && cmake --build build -j"$(nproc)" && \
+mkdir -p ~/.config/quickshell/dynamic_island/{IslandBackend,bin} && \
+cp ./*.qml ~/.config/quickshell/dynamic_island/ && \
+cp ./bin/* ~/.config/quickshell/dynamic_island/bin/ && \
+cp build/{libIslandBackend.so,libIslandBackendplugin.so,qmldir,IslandBackend.qmltypes} \
+~/.config/quickshell/dynamic_island/IslandBackend/
 ```
 
 ### Clean 
@@ -155,7 +147,7 @@ bind = SUPER, TAB, exec, qs ipc -p ~/.config/quickshell/dynamic_island/shell.qml
 
 - [@end-4](https://github.com/end-4) - For the workspace overview design.
 - [@BEST8OY](https://github.com/BEST8OY) - For providing the lyrics support.
-- 淮南牛肉粉丝 - For being so delicious.
+- [@gozhuimeng](https://github.com/gozhuimeng) - For improve the lyrics backend.
 
 ## Important thing
 
@@ -164,5 +156,7 @@ bind = SUPER, TAB, exec, qs ipc -p ~/.config/quickshell/dynamic_island/shell.qml
 - **The backend is hardcoded to read /sys/class/backlight/intel_backlight/. If you are using AMD or a different backlight driver, please update the path (SysBackend.cpp:353).**
 
 - **The status of caps lock is currently polled via hyprctl devices. Ensure hyprctl is in your $PATH.**
+
+- **To get access, click [here](https://github.com/gozhuimeng/Dynamic-island-on-hyprland).**
 
 - **If you encounter any issues, feel free to open an issue!**
