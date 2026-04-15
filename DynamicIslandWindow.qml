@@ -10,10 +10,19 @@ PanelWindow {
     id: root
     property var shellRootController: null
     property string overviewPhase: "closed"
+    property bool overviewPreloading: false
     readonly property bool overviewPreparing: overviewPhase === "preparing"
-    readonly property bool overviewVisible: overviewPhase === "opening" || overviewPhase === "open"
-    readonly property bool overviewContentVisible: overviewPhase === "open"
-    readonly property bool overviewLoaderActive: overviewPhase !== "closed"
+    readonly property bool overviewVisible: overviewPhase === "preparing" || overviewPhase === "opening" || overviewPhase === "open"
+    readonly property bool overviewLoaderActive: overviewPhase !== "closed" || overviewPreloading
+    readonly property bool overviewDataReady: overviewLoader.item
+        ? !!overviewLoader.item.overviewDataReady
+        : false
+    readonly property bool overviewWallpaperReady: overviewWallpaperCacheLoader.item
+        ? (overviewWallpaperCacheLoader.item.cacheAvailable || !overviewWallpaperCacheLoader.item.busy)
+        : false
+    readonly property bool overviewVisualReady: overviewDataReady && overviewWallpaperReady
+    readonly property bool overviewContentVisible: (overviewPhase === "opening" || overviewPhase === "open")
+        && overviewVisualReady
     readonly property var hyprMonitor: screen ? Hyprland.monitorFor(screen) : Hyprland.focusedMonitor
     readonly property string hyprMonitorName: hyprMonitor && hyprMonitor.name ? String(hyprMonitor.name) : ""
     readonly property bool monitorFocused: hyprMonitor ? hyprMonitor.focused : false
@@ -42,10 +51,26 @@ PanelWindow {
                 ? Math.ceil(mainCapsule.height + capsuleMouseArea.sideSwipeVerticalTolerance * 2)
                 : 0
         }
+
+        Region {
+            intersection: Intersection.Combine
+            x: Math.floor(wifiConnectivityDetailShell.x)
+            y: Math.floor(wifiConnectivityDetailShell.y)
+            width: wifiConnectivityDetailShell.visible ? Math.ceil(wifiConnectivityDetailShell.width) : 0
+            height: wifiConnectivityDetailShell.visible ? Math.ceil(wifiConnectivityDetailShell.height) : 0
+        }
+
+        Region {
+            intersection: Intersection.Combine
+            x: Math.floor(bluetoothConnectivityDetailShell.x)
+            y: Math.floor(bluetoothConnectivityDetailShell.y)
+            width: bluetoothConnectivityDetailShell.visible ? Math.ceil(bluetoothConnectivityDetailShell.width) : 0
+            height: bluetoothConnectivityDetailShell.visible ? Math.ceil(bluetoothConnectivityDetailShell.height) : 0
+        }
     }
-    implicitHeight: (root.overviewVisible || root.overviewPreparing)
-        ? Math.max(360, Math.ceil(4 + root.overviewCapsuleHeight + 8))
-        : 360
+    implicitHeight: root.overviewVisible
+        ? Math.max(Math.ceil(4 + root.connectivityDetailHeight + 12), Math.ceil(4 + root.overviewCapsuleHeight + 8))
+        : Math.ceil(4 + root.connectivityDetailHeight + 12)
     exclusiveZone: 45
     aboveWindows: true
     focusable: root.overviewVisible && root.monitorFocused
@@ -87,15 +112,44 @@ PanelWindow {
     readonly property color overviewCapsuleBorderColor: islandContainer.overviewView
         ? islandContainer.overviewView.cardBorderColor
         : "#33ffffff"
+    property bool wifiConnectivityDetailOpen: false
+    property bool wifiConnectivityDetailMounted: false
+    property bool bluetoothConnectivityDetailOpen: false
+    property bool bluetoothConnectivityDetailMounted: false
+    property bool overviewWallpaperRefreshPending: false
+    readonly property bool anyConnectivityDetailMounted: wifiConnectivityDetailMounted || bluetoothConnectivityDetailMounted
+    readonly property real connectivityDetailWidth: 318
+    readonly property real connectivityDetailHeight: 404
+    readonly property real connectivityDetailGap: 16
+    readonly property int connectivityDetailAnimationDuration: 360
+    readonly property string overviewWallpaperSource: overviewWallpaperCacheLoader.item
+        ? overviewWallpaperCacheLoader.item.effectiveSource
+        : userConfig.wallpaperPath
 
     function beginOverviewOpening() {
         if (!overviewPreparing) return;
+        if (overviewLoader.status !== Loader.Ready || !overviewVisualReady) return;
+        overviewPreloading = false;
         overviewPhase = "opening";
         overviewRevealTimer.restart();
     }
 
+    function prepareOverview() {
+        if (overviewPhase !== "closed") return;
+        overviewPreloading = true;
+        overviewPreloadExpireTimer.restart();
+    }
+
+    function cancelPreparedOverview() {
+        if (overviewPhase !== "closed") return;
+        overviewPreloadExpireTimer.stop();
+        overviewPreloading = false;
+    }
+
     function openOverview() {
-        if (overviewLoaderActive) return;
+        if (overviewPhase !== "closed") return;
+        overviewPreloadExpireTimer.stop();
+        overviewPreloading = true;
         overviewPhase = "preparing";
         if (overviewLoader.status === Loader.Ready) {
             beginOverviewOpening();
@@ -105,7 +159,9 @@ PanelWindow {
     function closeOverview() {
         if (!overviewLoaderActive) return;
         overviewRevealTimer.stop();
+        overviewPreloadExpireTimer.stop();
         islandContainer.restoreRestingCapsule(true);
+        overviewPreloading = false;
         overviewPhase = "closed";
     }
 
@@ -118,6 +174,42 @@ PanelWindow {
         closeOverview();
     }
 
+    function setConnectivityDetailVisible(kind, open) {
+        const nextOpen = !!open;
+
+        if (kind === "wifi") {
+            if (nextOpen) {
+                wifiConnectivityDetailCleanupTimer.stop();
+                wifiConnectivityDetailMounted = true;
+                wifiConnectivityDetailOpen = true;
+            } else {
+                if (!wifiConnectivityDetailMounted && !wifiConnectivityDetailOpen)
+                    return;
+                wifiConnectivityDetailOpen = false;
+                wifiConnectivityDetailCleanupTimer.restart();
+            }
+            return;
+        }
+
+        if (kind === "bluetooth") {
+            if (nextOpen) {
+                bluetoothConnectivityDetailCleanupTimer.stop();
+                bluetoothConnectivityDetailMounted = true;
+                bluetoothConnectivityDetailOpen = true;
+            } else {
+                if (!bluetoothConnectivityDetailMounted && !bluetoothConnectivityDetailOpen)
+                    return;
+                bluetoothConnectivityDetailOpen = false;
+                bluetoothConnectivityDetailCleanupTimer.restart();
+            }
+        }
+    }
+
+    function closeAllConnectivityDetails() {
+        setConnectivityDetailVisible("wifi", false);
+        setConnectivityDetailVisible("bluetooth", false);
+    }
+
     function openOverviewEverywhere() {
         if (shellRootController && shellRootController.openOverviewAll) {
             shellRootController.openOverviewAll();
@@ -125,6 +217,24 @@ PanelWindow {
         }
 
         openOverview();
+    }
+
+    function prepareOverviewEverywhere() {
+        if (shellRootController && shellRootController.prepareOverviewAll) {
+            shellRootController.prepareOverviewAll();
+            return;
+        }
+
+        prepareOverview();
+    }
+
+    function cancelPreparedOverviewEverywhere() {
+        if (shellRootController && shellRootController.cancelPreparedOverviewAll) {
+            shellRootController.cancelPreparedOverviewAll();
+            return;
+        }
+
+        cancelPreparedOverview();
     }
 
     function toggleOverviewEverywhere() {
@@ -156,7 +266,13 @@ PanelWindow {
     }
 
     function prewarmWallpaperCache() {
-        overviewWallpaperCache.refreshNow();
+        overviewWallpaperRefreshPending = true;
+        overviewWallpaperCacheKeepAliveTimer.restart();
+
+        if (overviewWallpaperCacheLoader.item) {
+            overviewWallpaperCacheLoader.item.refreshNow();
+            overviewWallpaperRefreshPending = false;
+        }
     }
 
     function handleWorkspaceEvent(event) {
@@ -200,6 +316,9 @@ PanelWindow {
     onOverviewVisibleChanged: {
         if (overviewVisible && monitorFocused) overviewFocusTimer.restart();
     }
+    onOverviewVisualReadyChanged: {
+        if (overviewVisualReady) beginOverviewOpening();
+    }
     onMonitorFocusedChanged: {
         if (overviewVisible && monitorFocused) overviewFocusTimer.restart();
     }
@@ -221,12 +340,58 @@ PanelWindow {
         }
     }
 
-    WallpaperThumbnailCache {
-        id: overviewWallpaperCache
+    Timer {
+        id: overviewPreloadExpireTimer
+        interval: 1200
+        repeat: false
+        onTriggered: {
+            if (root.overviewPhase === "closed")
+                root.overviewPreloading = false;
+        }
+    }
 
-        sourcePath: userConfig.wallpaperPath
-        targetWidth: root.overviewWallpaperTargetWidth
-        targetHeight: root.overviewWallpaperTargetHeight
+    Timer {
+        id: wifiConnectivityDetailCleanupTimer
+        interval: root.connectivityDetailAnimationDuration
+        repeat: false
+        onTriggered: root.wifiConnectivityDetailMounted = false
+    }
+
+    Timer {
+        id: bluetoothConnectivityDetailCleanupTimer
+        interval: root.connectivityDetailAnimationDuration
+        repeat: false
+        onTriggered: root.bluetoothConnectivityDetailMounted = false
+    }
+
+    Timer {
+        id: overviewWallpaperCacheKeepAliveTimer
+        interval: 3000
+        repeat: false
+    }
+
+    Loader {
+        id: overviewWallpaperCacheLoader
+        active: root.overviewLoaderActive
+            || overviewWallpaperCacheKeepAliveTimer.running
+            || (item && item.busy)
+        asynchronous: false
+        visible: false
+
+        onLoaded: {
+            if (root.overviewWallpaperRefreshPending && item) {
+                item.refreshNow();
+                root.overviewWallpaperRefreshPending = false;
+            }
+        }
+
+        sourceComponent: Component {
+            WallpaperThumbnailCache {
+                sourcePath: userConfig.wallpaperPath
+                targetWidth: root.overviewWallpaperTargetWidth
+                targetHeight: root.overviewWallpaperTargetHeight
+            }
+        }
     }
 
     // --- 基础时钟引擎 ---
@@ -354,6 +519,15 @@ PanelWindow {
         readonly property var overviewView: overviewLoader.item && overviewLoader.item.overviewView
             ? overviewLoader.item.overviewView
             : null
+
+        onControlCenterLayerVisibleChanged: {
+            if (!controlCenterLayerVisible) {
+                if (controlCenterLoader.item)
+                    controlCenterLoader.item.closeConnectivityPanels();
+                else
+                    root.closeAllConnectivityDetails();
+            }
+        }
 
         onCustomLeftItemsChanged: {
             if (restingState === "custom" && !hasCustomLeftItems) {
@@ -570,7 +744,9 @@ PanelWindow {
                 if (batteryCapacity < 0) return null;
                 return {
                     id: itemId,
-                    icon: isCharging ? userConfig.statusIcons["charging"] : "",
+                    kind: "battery",
+                    level: Math.max(0, Math.min(100, batteryCapacity)),
+                    icon: "",
                     text: Math.max(0, batteryCapacity) + "%"
                 };
             case "volume":
@@ -588,7 +764,7 @@ PanelWindow {
                     text: formatPercentText(currentBrightness)
                 };
             case "workspace":
-                return { id: itemId, icon: "", text: "WS " + currentWs };
+                return { id: itemId, icon: "", text: "Workspace " + currentWs };
             case "cpu":
                 if (currentCpuUsage < 0) return null;
                 return {
@@ -1475,9 +1651,10 @@ PanelWindow {
         // --- UI 渲染：灵动岛主干 ---
         Rectangle {
             id: mainCapsule
+            z: 5
             property int morphDuration: 400
-            property real outlineWidth: root.overviewVisible ? 1 : 0
-            property color outlineColor: root.overviewVisible ? root.overviewCapsuleBorderColor : "#00000000"
+            property real outlineWidth: root.overviewContentVisible ? 1 : 0
+            property color outlineColor: root.overviewContentVisible ? root.overviewCapsuleBorderColor : "#00000000"
             property real displayedWidth: baseTargetWidth
             readonly property real baseTargetWidth: {
                 if (root.overviewVisible) return root.overviewCapsuleWidth;
@@ -1523,7 +1700,7 @@ PanelWindow {
 
                 switch (islandContainer.islandState) {
                 case "control_center":
-                    return 292;
+                    return 320;
                 case "expanded":
                     return 165;
                 case "notification":
@@ -1560,7 +1737,7 @@ PanelWindow {
             readonly property real sideSwipePreviewWidth: mainCapsule.sideSwipeWidthForProgress(
                 islandContainer.swipeTransitionProgress
             )
-            color: root.overviewVisible ? root.overviewCapsuleColor : "black"
+            color: root.overviewContentVisible ? root.overviewCapsuleColor : "black"
             y: 4
             anchors.horizontalCenter: parent.horizontalCenter
             clip: true
@@ -1594,11 +1771,11 @@ PanelWindow {
                 color: "transparent"
                 border.width: 1
                 border.color: "#12ffffff"
-                opacity: root.overviewVisible ? 1 : 0
+                opacity: root.overviewContentVisible ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation {
-                        duration: root.overviewVisible ? 260 : 140
+                        duration: root.overviewContentVisible ? 260 : 140
                         easing.type: Easing.InOutQuad
                     }
                 }
@@ -1620,6 +1797,7 @@ PanelWindow {
                 property bool swipeMoved: false
                 property bool sideSwipeInteractive: false
                 property bool suppressNextClick: false
+                property bool preparedOverviewOnPress: false
 
                 Timer {
                     id: swipeSuppressReset
@@ -1640,6 +1818,18 @@ PanelWindow {
                     swipeMoved = false;
                     sideSwipeInteractive = swipeArmed;
                     islandContainer.swipeTransitionProgress = swipeStartProgress;
+
+                    let pressedAction = "";
+                    if (mouse.button === userConfig.mouseButton(userConfig.dynamicIslandPrimaryButton)) {
+                        pressedAction = userConfig.dynamicIslandPrimaryAction;
+                    } else if (mouse.button === userConfig.mouseButton(userConfig.dynamicIslandSecondaryButton)) {
+                        pressedAction = userConfig.dynamicIslandSecondaryAction;
+                    }
+
+                    preparedOverviewOnPress = pressedAction === "openOverview"
+                        || (pressedAction === "toggleOverview" && root.overviewPhase === "closed");
+                    if (preparedOverviewOnPress)
+                        root.prepareOverviewEverywhere();
                 }
 
                 onPositionChanged: (mouse) => {
@@ -1662,6 +1852,9 @@ PanelWindow {
 
                 onReleased: {
                     if (swipeMoved) {
+                        if (preparedOverviewOnPress)
+                            root.cancelPreparedOverviewEverywhere();
+                        preparedOverviewOnPress = false;
                         suppressNextClick = true;
                         swipeSuppressReset.restart();
                     }
@@ -1706,10 +1899,13 @@ PanelWindow {
                 }
 
                 onCanceled: {
+                    if (preparedOverviewOnPress)
+                        root.cancelPreparedOverviewEverywhere();
                     swipeArmed = false;
                     swipeMoved = false;
                     sideSwipeInteractive = false;
                     suppressNextClick = false;
+                    preparedOverviewOnPress = false;
                     swipeSuppressReset.stop();
                     mainCapsule.displayedWidth = mainCapsule.baseTargetWidth;
                     islandContainer.swipeTransitionProgress = islandContainer.swipeRestProgressForState();
@@ -1719,15 +1915,18 @@ PanelWindow {
                     if (suppressNextClick) {
                         swipeSuppressReset.stop();
                         suppressNextClick = false;
+                        preparedOverviewOnPress = false;
                         return;
                     }
 
                     if (mouse.button === userConfig.mouseButton(userConfig.dynamicIslandPrimaryButton)) {
+                        preparedOverviewOnPress = false;
                         islandContainer.handleConfiguredClickAction(userConfig.dynamicIslandPrimaryAction);
                         return;
                     }
 
                     if (mouse.button === userConfig.mouseButton(userConfig.dynamicIslandSecondaryButton)) {
+                        preparedOverviewOnPress = false;
                         islandContainer.handleConfiguredClickAction(userConfig.dynamicIslandSecondaryAction);
                     }
                 }
@@ -1788,38 +1987,68 @@ PanelWindow {
                 }
             }
 
-            SplitIconLayer {
-                iconText: islandContainer.splitIcon
-                iconFontFamily: root.iconFontFamily
-                transitionProgress: islandContainer.swipeTransitionProgress
-                slideDirection: islandContainer.splitOriginSide
-                showCondition: !root.overviewVisible && islandContainer.splitShowsIconOnly
+            Loader {
+                id: splitIconLoader
+                anchors.fill: parent
+                active: !root.overviewVisible && islandContainer.splitShowsIconOnly
+                asynchronous: false
+                visible: active
+
+                sourceComponent: Component {
+                    SplitIconLayer {
+                        iconText: islandContainer.splitIcon
+                        iconFontFamily: root.iconFontFamily
+                        transitionProgress: islandContainer.swipeTransitionProgress
+                        slideDirection: islandContainer.splitOriginSide
+                        showCondition: true
+                    }
+                }
             }
 
-            OsdLayer {
-                iconText: islandContainer.splitIcon
-                progress: islandContainer.osdProgress
-                customText: islandContainer.osdCustomText
-                iconFontFamily: root.iconFontFamily
-                textFontFamily: root.textFontFamily
-                heroFontFamily: root.heroFontFamily
-                transitionProgress: islandContainer.swipeTransitionProgress
-                slideDirection: islandContainer.splitOriginSide
-                showCondition: !root.overviewVisible && islandContainer.splitUsesExtendedLayout
+            Loader {
+                id: osdLayerLoader
+                anchors.fill: parent
+                active: !root.overviewVisible && islandContainer.splitUsesExtendedLayout
+                asynchronous: false
+                visible: active
+
+                sourceComponent: Component {
+                    OsdLayer {
+                        iconText: islandContainer.splitIcon
+                        progress: islandContainer.osdProgress
+                        customText: islandContainer.osdCustomText
+                        iconFontFamily: root.iconFontFamily
+                        textFontFamily: root.textFontFamily
+                        heroFontFamily: root.heroFontFamily
+                        transitionProgress: islandContainer.swipeTransitionProgress
+                        slideDirection: islandContainer.splitOriginSide
+                        showCondition: true
+                    }
+                }
             }
 
-            WorkspaceLayer {
-                workspaceId: islandContainer.currentWs
-                displayText: "Workspace " + islandContainer.currentWs
-                textFontFamily: root.textFontFamily
-                textPixelSize: 16
-                animateVisibility: islandContainer.restingState === "normal"
-                transitionProgress: islandContainer.swipeTransitionProgress
-                showCondition: !root.overviewVisible
+            Loader {
+                id: workspaceLayerLoader
+                anchors.fill: parent
+                active: !root.overviewVisible
                     && islandContainer.islandState === "long_capsule"
                     && (islandContainer.workspaceOriginSide !== "none"
                         || Math.abs(islandContainer.swipeTransitionProgress) < 0.001)
-                slideDirection: islandContainer.workspaceOriginSide
+                asynchronous: false
+                visible: active
+
+                sourceComponent: Component {
+                    WorkspaceLayer {
+                        workspaceId: islandContainer.currentWs
+                        displayText: "Workspace " + islandContainer.currentWs
+                        textFontFamily: root.textFontFamily
+                        textPixelSize: 16
+                        animateVisibility: islandContainer.restingState === "normal"
+                        transitionProgress: islandContainer.swipeTransitionProgress
+                        showCondition: true
+                        slideDirection: islandContainer.workspaceOriginSide
+                    }
+                }
             }
 
             Loader {
@@ -1870,7 +2099,7 @@ PanelWindow {
             Loader {
                 id: controlCenterLoader
                 anchors.fill: parent
-                active: islandContainer.controlCenterLayerVisible
+                active: islandContainer.controlCenterLayerVisible || root.anyConnectivityDetailMounted
                 asynchronous: false
                 visible: active
 
@@ -1889,7 +2118,10 @@ PanelWindow {
                         currentWorkspace: islandContainer.currentWs
                         currentTrack: islandContainer.currentTrack
                         currentArtist: islandContainer.currentArtist
-                        showCondition: true
+                        showCondition: islandContainer.controlCenterLayerVisible
+                        onConnectivityPanelRequested: function(kind, open) {
+                            root.setConnectivityDetailVisible(kind, open);
+                        }
                     }
                 }
             }
@@ -1913,6 +2145,7 @@ PanelWindow {
                         id: overviewScene
 
                         property alias overviewView: overviewView
+                        property alias overviewDataReady: hyprlandData.ready
 
                         anchors.fill: parent
 
@@ -1929,7 +2162,7 @@ PanelWindow {
                             showCondition: root.overviewVisible
                             textFontFamily: root.textFontFamily
                             heroFontFamily: root.heroFontFamily
-                            wallpaperPath: overviewWallpaperCache.effectiveSource
+                            wallpaperPath: root.overviewWallpaperSource
                             windowCornerRadius: userConfig.workspaceOverviewWindowRadius
                             onCloseRequested: root.closeOverviewEverywhere()
                         }
@@ -1937,6 +2170,162 @@ PanelWindow {
                 }
             }
 
+        }
+
+        Item {
+            id: wifiConnectivityDetailShell
+            property real revealProgress: 0
+            readonly property real shownX: Math.max(16, mainCapsule.x - width - root.connectivityDetailGap)
+            readonly property real hiddenX: mainCapsule.x + 28
+            readonly property real hiddenY: mainCapsule.y + 20
+            readonly property real panelScale: revealProgress
+
+            function startPanelAnimation(open) {
+                wifiRevealAnimation.stop();
+
+                if (open) {
+                    wifiRevealAnimation.to = 1;
+                    wifiRevealAnimation.duration = 420;
+                    wifiRevealAnimation.easing.type = Easing.OutBack;
+                    wifiRevealAnimation.easing.overshoot = 0.5;
+                    wifiRevealAnimation.start();
+                } else {
+                    wifiRevealAnimation.to = 0;
+                    wifiRevealAnimation.duration = 180;
+                    wifiRevealAnimation.easing.type = Easing.InCubic;
+                    wifiRevealAnimation.start();
+                }
+            }
+
+            x: hiddenX + (shownX - hiddenX) * revealProgress
+            y: hiddenY + (mainCapsule.y - hiddenY) * revealProgress
+            width: root.connectivityDetailWidth
+            height: root.connectivityDetailHeight
+            opacity: revealProgress
+            visible: root.wifiConnectivityDetailMounted || opacity > 0.001
+            z: 3
+
+            NumberAnimation {
+                id: wifiRevealAnimation
+                target: wifiConnectivityDetailShell
+                property: "revealProgress"
+            }
+
+            Component.onCompleted: revealProgress = root.wifiConnectivityDetailOpen ? 1 : 0
+
+            Connections {
+                target: root
+
+                function onWifiConnectivityDetailOpenChanged() {
+                    wifiConnectivityDetailShell.startPanelAnimation(root.wifiConnectivityDetailOpen);
+                }
+            }
+
+            Item {
+                id: wifiPanelBody
+                anchors.fill: parent
+                transform: Scale {
+                    origin.x: wifiPanelBody.width
+                    origin.y: Math.min(wifiPanelBody.height - 32, Math.max(36, mainCapsule.height - 215))
+                    xScale: wifiConnectivityDetailShell.panelScale
+                    yScale: wifiConnectivityDetailShell.panelScale
+                }
+
+                Loader {
+                    anchors.fill: parent
+                    active: root.wifiConnectivityDetailMounted
+                    asynchronous: false
+                    visible: active
+                    sourceComponent: Component {
+                        ConnectivityDetailPanel {
+                            provider: controlCenterLoader.item
+                            panelKind: "wifi"
+                            iconFontFamily: root.iconFontFamily
+                            textFontFamily: root.textFontFamily
+                            heroFontFamily: root.heroFontFamily
+                            presentationProgress: wifiConnectivityDetailShell.revealProgress
+                        }
+                    }
+                }
+            }
+        }
+
+        Item {
+            id: bluetoothConnectivityDetailShell
+            property real revealProgress: 0
+            readonly property real shownX: Math.min(root.width - width - 16, mainCapsule.x + mainCapsule.width + root.connectivityDetailGap)
+            readonly property real hiddenX: mainCapsule.x + mainCapsule.width - width - 28
+            readonly property real hiddenY: mainCapsule.y + 20
+            readonly property real panelScale: revealProgress
+
+            function startPanelAnimation(open) {
+                bluetoothRevealAnimation.stop();
+
+                if (open) {
+                    bluetoothRevealAnimation.to = 1;
+                    bluetoothRevealAnimation.duration = 420;
+                    bluetoothRevealAnimation.easing.type = Easing.OutBack;
+                    bluetoothRevealAnimation.easing.overshoot = 0.5;
+                    bluetoothRevealAnimation.start();
+                } else {
+                    bluetoothRevealAnimation.to = 0;
+                    bluetoothRevealAnimation.duration = 180;
+                    bluetoothRevealAnimation.easing.type = Easing.InCubic;
+                    bluetoothRevealAnimation.start();
+                }
+            }
+
+            x: hiddenX + (shownX - hiddenX) * revealProgress
+            y: hiddenY + (mainCapsule.y - hiddenY) * revealProgress
+            width: root.connectivityDetailWidth
+            height: root.connectivityDetailHeight
+            opacity: revealProgress
+            visible: root.bluetoothConnectivityDetailMounted || opacity > 0.001
+            z: 3
+
+            NumberAnimation {
+                id: bluetoothRevealAnimation
+                target: bluetoothConnectivityDetailShell
+                property: "revealProgress"
+            }
+
+            Component.onCompleted: revealProgress = root.bluetoothConnectivityDetailOpen ? 1 : 0
+
+            Connections {
+                target: root
+
+                function onBluetoothConnectivityDetailOpenChanged() {
+                    bluetoothConnectivityDetailShell.startPanelAnimation(root.bluetoothConnectivityDetailOpen);
+                }
+            }
+
+            Item {
+                id: bluetoothPanelBody
+                anchors.fill: parent
+                transform: Scale {
+                    origin.x: 0
+                    origin.y: Math.min(bluetoothPanelBody.height - 32, Math.max(36, mainCapsule.height - 215))
+                    xScale: bluetoothConnectivityDetailShell.panelScale
+                    yScale: bluetoothConnectivityDetailShell.panelScale
+                }
+
+                Loader {
+                    anchors.fill: parent
+                    active: root.bluetoothConnectivityDetailMounted
+                    asynchronous: false
+                    visible: active
+                    sourceComponent: Component {
+                        ConnectivityDetailPanel {
+                            provider: controlCenterLoader.item
+                            panelKind: "bluetooth"
+                            iconFontFamily: root.iconFontFamily
+                            textFontFamily: root.textFontFamily
+                            heroFontFamily: root.heroFontFamily
+                            presentationProgress: bluetoothConnectivityDetailShell.revealProgress
+                        }
+                    }
+                }
+            }
         }
     }
 }

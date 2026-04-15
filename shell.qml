@@ -23,11 +23,19 @@ Scope {
         const windows = panelVariants.instances ? panelVariants.instances : [];
         for (let index = 0; index < windows.length; index++) {
             const window = windows[index];
-            if (window && window.overviewLoaderActive)
+            if (window && window.overviewPhase !== "closed")
                 return true;
         }
 
         return false;
+    }
+
+    function prepareOverviewAll() {
+        shellRoot.forEachWindow((window) => window.prepareOverview());
+    }
+
+    function cancelPreparedOverviewAll() {
+        shellRoot.forEachWindow((window) => window.cancelPreparedOverview());
     }
 
     function openOverviewAll() {

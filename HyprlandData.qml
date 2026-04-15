@@ -13,6 +13,11 @@ Item {
     property var workspaces: []
     property var activeWorkspace: null
     property var monitors: []
+    property bool clientsReady: false
+    property bool monitorsReady: false
+    property bool workspacesReady: false
+    property bool activeWorkspaceReady: false
+    readonly property bool ready: clientsReady && monitorsReady && workspacesReady && activeWorkspaceReady
 
     function parseJson(text, fallback) {
         const source = (text || "").trim();
@@ -81,6 +86,7 @@ Item {
             onStreamFinished: {
                 root.windowList = root.parseJson(clientsCollector.text, []);
                 root.rebuildWindowIndex();
+                root.clientsReady = true;
             }
         }
     }
@@ -94,6 +100,7 @@ Item {
 
             onStreamFinished: {
                 root.monitors = root.parseJson(monitorsCollector.text, []);
+                root.monitorsReady = true;
             }
         }
     }
@@ -109,6 +116,7 @@ Item {
                 const rawWorkspaces = root.parseJson(workspacesCollector.text, []);
                 const filtered = rawWorkspaces.filter((workspace) => workspace.id >= 1 && workspace.id <= 100);
                 root.workspaces = filtered;
+                root.workspacesReady = true;
             }
         }
     }
@@ -122,6 +130,7 @@ Item {
 
             onStreamFinished: {
                 root.activeWorkspace = root.parseJson(activeWorkspaceCollector.text, null);
+                root.activeWorkspaceReady = true;
             }
         }
     }

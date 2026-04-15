@@ -26,6 +26,12 @@ Item {
     property int textPixelSize: 16
     property int iconPixelSize: 16
     property int iconBoxSize: 18
+    property int batteryIconWidth: 30
+    property int batteryIconHeight: 15
+    property int batteryTipWidth: 3
+    property int batteryTipHeight: 7
+    property int batteryOuterRadius: 5
+    property int batteryInnerRadius: 3
     property real iconVerticalOffset: 1
 
     readonly property real clampedProgress: Math.max(0, Math.min(1, -transitionProgress))
@@ -69,9 +75,11 @@ Item {
             delegate: Item {
                 readonly property bool hasIcon: modelData.icon !== ""
                 readonly property bool isCava: modelData.kind === "cava"
+                readonly property bool isBattery: modelData.kind === "battery"
+                readonly property bool hasLeadingVisual: hasIcon || isBattery
                 implicitWidth: isCava
                     ? cavaBars.implicitWidth
-                    : iconBox.width + (hasIcon ? root.iconSpacing : 0) + valueText.implicitWidth
+                    : leadingVisual.width + (hasLeadingVisual ? root.iconSpacing : 0) + valueText.implicitWidth
                 implicitHeight: root.height
                 width: implicitWidth
                 height: implicitHeight
@@ -84,28 +92,77 @@ Item {
                 }
 
                 Item {
-                    id: iconBox
-                    visible: !parent.isCava && parent.hasIcon
-                    width: parent.hasIcon ? root.iconBoxSize : 0
-                    height: root.iconBoxSize
-                    anchors.left: parent.left
+                    id: leadingVisual
+                    visible: !parent.isCava && parent.hasLeadingVisual
+                    width: parent.isBattery ? root.batteryIconWidth : (parent.hasIcon ? root.iconBoxSize : 0)
+                    height: parent.isBattery ? Math.max(root.batteryIconHeight, valueText.implicitHeight) : root.iconBoxSize
+                    anchors.left: parent.isBattery ? valueText.right : parent.left
+                    anchors.leftMargin: parent.isBattery ? root.iconSpacing : 0
                     anchors.verticalCenter: parent.verticalCenter
 
                     Text {
                         anchors.centerIn: parent
                         anchors.verticalCenterOffset: root.iconVerticalOffset
+                        visible: parent.parent.hasIcon && !parent.parent.isBattery
                         text: modelData.icon || ""
                         color: "white"
                         font.pixelSize: root.iconPixelSize
                         font.family: root.iconFontFamily
+                    }
+
+                    Item {
+                        visible: parent.parent.isBattery
+                        width: root.batteryIconWidth
+                        height: root.batteryIconHeight
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.rightMargin: root.batteryTipWidth
+                            radius: root.batteryOuterRadius
+                            color: "transparent"
+                            border.color: "#8e8e93"
+                            border.width: 1
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.margins: 2
+                                radius: root.batteryInnerRadius
+                                width: Math.max(0, (parent.width - 4) * (Math.max(0, Math.min(100, Number(modelData.level || 0))) / 100.0))
+                                color: {
+                                    const level = Math.max(0, Math.min(100, Number(modelData.level || 0)));
+                                    if (level <= 10) return "#ff3b30";
+                                    if (level <= 20) return "#ffcc00";
+                                    return "#34c759";
+                                }
+
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: 300
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: root.batteryTipWidth
+                            height: root.batteryTipHeight
+                            radius: Math.round(root.batteryTipWidth / 2)
+                            color: "#8e8e93"
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
                 }
 
                 Text {
                     visible: !parent.isCava
                     id: valueText
-                    anchors.left: iconBox.right
-                    anchors.leftMargin: parent.hasIcon ? root.iconSpacing : 0
+                    anchors.left: parent.isBattery ? parent.left : leadingVisual.right
+                    anchors.leftMargin: parent.hasLeadingVisual && !parent.isBattery ? root.iconSpacing : 0
                     anchors.verticalCenter: parent.verticalCenter
                     text: modelData.text || ""
                     color: "white"

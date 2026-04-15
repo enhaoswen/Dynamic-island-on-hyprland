@@ -234,8 +234,8 @@ Item {
                                         fillMode: Image.PreserveAspectCrop
                                         sourceSize.width: root.cachedWallpaperWidth
                                         sourceSize.height: root.cachedWallpaperHeight
-                                        asynchronous: true
-                                        cache: false
+                                        asynchronous: false
+                                        cache: true
                                         opacity: 0.92
                                     }
 

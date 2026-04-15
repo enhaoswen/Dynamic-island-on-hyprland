@@ -36,6 +36,7 @@ Item {
     property bool refreshPending: false
     property string inFlightCachePath: ""
     property string inFlightSourcePath: ""
+    readonly property bool busy: refreshPending || refreshDebounceTimer.running || thumbnailProcess.running
 
     function localPath(value) {
         if (value === undefined || value === null)
