@@ -80,6 +80,18 @@ Item {
                 color: "transparent"
                 visible: root.isWifi && root.provider && root.provider.wifiEnabled && root.provider.wifiCurrentSsid.length > 0
 
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: root.provider
+                        && root.provider.wifiSupported
+                        && root.provider.wifiAvailable
+                        && !root.provider.wifiBusy
+                    onClicked: {
+                        if (root.provider)
+                            root.provider.disconnectWifi();
+                    }
+                }
+
                 Item {
                     anchors.fill: parent
                     anchors.margins: 14
@@ -131,6 +143,16 @@ Item {
 
             Text {
                 width: parent.width
+                visible: root.provider && root.provider.wifiAvailabilityMessage.length > 0 && root.isWifi
+                text: root.provider ? root.provider.wifiAvailabilityMessage : ""
+                color: "#9b9da4"
+                font.pixelSize: 11
+                font.family: root.textFontFamily
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                width: parent.width
                 visible: root.provider && root.provider.wifiInfoMessage.length > 0 && root.isWifi
                 text: root.provider ? root.provider.wifiInfoMessage : ""
                 color: "#6ea8ff"
@@ -144,6 +166,16 @@ Item {
                 visible: root.provider && root.provider.wifiError.length > 0 && root.isWifi
                 text: root.provider ? root.provider.wifiError : ""
                 color: "#ff7c72"
+                font.pixelSize: 11
+                font.family: root.textFontFamily
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                width: parent.width
+                visible: root.provider && root.provider.bluetoothAvailabilityMessage.length > 0 && root.isBluetooth
+                text: root.provider ? root.provider.bluetoothAvailabilityMessage : ""
+                color: "#9b9da4"
                 font.pixelSize: 11
                 font.family: root.textFontFamily
                 wrapMode: Text.Wrap
@@ -314,7 +346,10 @@ Item {
 
                 Text {
                     width: parent.width
-                    visible: root.isWifi && root.provider && !root.provider.wifiEnabled
+                    visible: root.isWifi && root.provider
+                        && root.provider.wifiSupported
+                        && root.provider.wifiAvailable
+                        && !root.provider.wifiEnabled
                     text: "Turn on Wi-Fi to see nearby networks."
                     color: "#9b9da4"
                     font.pixelSize: 12
@@ -344,12 +379,16 @@ Item {
 
                         MouseArea {
                             anchors.fill: parent
-                            enabled: root.provider && root.provider.wifiEnabled && !root.provider.wifiBusy
+                            enabled: root.provider
+                                && root.provider.wifiSupported
+                                && root.provider.wifiAvailable
+                                && root.provider.wifiEnabled
+                                && !root.provider.wifiBusy
                             onClicked: {
                                 if (!root.provider) return;
                                 root.provider.connectWifiNetwork({
                                     ssid: ssid,
-                                    security: security,
+                                    secure: secure,
                                     savedConnection: savedConnection,
                                     connected: connected
                                 });
@@ -403,11 +442,11 @@ Item {
                                 spacing: 6
 
                                 Text {
-                                    text: bars
+                                    text: signal + "%"
                                     color: "#f0f0f3"
-                                    font.pixelSize: 14
+                                    font.pixelSize: 11
                                     font.family: root.textFontFamily
-                                    visible: root.safeString(bars).length > 0
+                                    visible: signal >= 0
                                 }
 
                                 Text {
@@ -424,7 +463,7 @@ Item {
 
                 Text {
                     width: parent.width
-                    visible: root.isBluetooth && root.provider && !root.provider.bluetoothEnabled
+                    visible: root.isBluetooth && root.provider && root.provider.bluetoothAvailable && !root.provider.bluetoothEnabled
                     text: "Turn on Bluetooth to see nearby devices."
                     color: "#9b9da4"
                     font.pixelSize: 12

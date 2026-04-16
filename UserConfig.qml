@@ -42,7 +42,7 @@ QtObject {
     property string dynamicIslandSecondaryAction: "toggleControlCenter"
     // Supported built-in left swipe items:
     // "time", "date", "battery", "volume", "brightness", "workspace","cpu", "ram", "cava"
-    property var dynamicIslandLeftSwipeItems: (["cava","battery"])
+    property var dynamicIslandLeftSwipeItems: (["time", "date", "battery", "volume", "brightness", "workspace","cpu", "ram", "cava"])
 
     property var scriptPaths: ({
         button_1: "/home/dan/.local/bin/quickshell_script/wifi-menu.sh",
