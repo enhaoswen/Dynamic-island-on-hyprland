@@ -12,6 +12,7 @@ public:
         QString objectPath;
         QString ssid;
         QString displayName;
+        QString type;
         int signal = 0;
         bool secure = false;
         bool savedConnection = false;
@@ -21,6 +22,7 @@ public:
     enum Roles {
         SsidRole = Qt::UserRole + 1,
         DisplayNameRole,
+        TypeRole,
         SignalRole,
         SecureRole,
         SavedConnectionRole,

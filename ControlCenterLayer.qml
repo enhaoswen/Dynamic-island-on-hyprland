@@ -304,11 +304,22 @@ Item {
         if (network.connected) return;
 
         const ssid = trimString(network.ssid);
+        const networkType = trimString(network.type);
         const secure = !!network.secure;
         const savedConnection = !!network.savedConnection;
 
         if (!ssid) {
             wifiLocalError = "Hidden networks are not supported in this panel yet.";
+            return;
+        }
+
+        if (!savedConnection && networkType === "wep") {
+            wifiLocalError = "WEP networks aren't supported by this panel.";
+            return;
+        }
+
+        if (!savedConnection && networkType === "8021x") {
+            wifiLocalError = "802.1X networks need to be provisioned first.";
             return;
         }
 

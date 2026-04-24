@@ -21,6 +21,8 @@ QVariant WifiNetworkModel::data(const QModelIndex &index, int role) const {
         return entry.ssid;
     case DisplayNameRole:
         return entry.displayName;
+    case TypeRole:
+        return entry.type;
     case SignalRole:
         return entry.signal;
     case SecureRole:
@@ -38,6 +40,7 @@ QHash<int, QByteArray> WifiNetworkModel::roleNames() const {
     return {
         {SsidRole, "ssid"},
         {DisplayNameRole, "displayName"},
+        {TypeRole, "type"},
         {SignalRole, "signal"},
         {SecureRole, "secure"},
         {SavedConnectionRole, "savedConnection"},

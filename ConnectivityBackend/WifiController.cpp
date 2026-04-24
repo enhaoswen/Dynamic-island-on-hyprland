@@ -3,6 +3,7 @@
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
+#include <QDBusContext>
 #include <QDBusInterface>
 #include <QDBusMetaType>
 #include <QDBusReply>
@@ -13,12 +14,19 @@
 #include <QVariant>
 #include <QUuid>
 #include <algorithm>
+#include <utility>
 
 using ConnectionSettingsMap = WifiController::ConnectionSettingsMap;
 using ObjectPathList = QList<QDBusObjectPath>;
+using IwdManagedObjectMap = QMap<QDBusObjectPath, ConnectionSettingsMap>;
+using IwdOrderedNetworkList = QList<std::pair<QDBusObjectPath, qint16>>;
+using IwdUserNameAndPassword = std::pair<QString, QString>;
 
 Q_DECLARE_METATYPE(ConnectionSettingsMap)
 Q_DECLARE_METATYPE(ObjectPathList)
+Q_DECLARE_METATYPE(IwdManagedObjectMap)
+Q_DECLARE_METATYPE(IwdOrderedNetworkList)
+Q_DECLARE_METATYPE(IwdUserNameAndPassword)
 
 namespace {
 
@@ -36,6 +44,14 @@ constexpr auto kNetworkManagerSettingsPath = "/org/freedesktop/NetworkManager/Se
 constexpr auto kNetworkManagerSettingsInterface = "org.freedesktop.NetworkManager.Settings";
 constexpr auto kNetworkManagerSettingsConnectionInterface = "org.freedesktop.NetworkManager.Settings.Connection";
 constexpr auto kIwdService = "net.connman.iwd";
+constexpr auto kIwdAgentManagerPath = "/net/connman/iwd";
+constexpr auto kIwdAgentManagerInterface = "net.connman.iwd.AgentManager";
+constexpr auto kIwdDeviceInterface = "net.connman.iwd.Device";
+constexpr auto kIwdStationInterface = "net.connman.iwd.Station";
+constexpr auto kIwdNetworkInterface = "net.connman.iwd.Network";
+constexpr auto kIwdAgentObjectPath = "/com/quickshell/ConnectivityBackend/IwdAgent";
+constexpr auto kObjectManagerInterface = "org.freedesktop.DBus.ObjectManager";
+constexpr auto kIwdAgentCanceledError = "net.connman.iwd.Agent.Error.Canceled";
 constexpr auto kConnmanService = "net.connman";
 constexpr auto kRootPath = "/";
 
@@ -119,6 +135,34 @@ ConnectionSettingsMap connectionSettingsFromVariant(const QVariant &variant) {
     return {};
 }
 
+IwdManagedObjectMap managedObjectsFromVariant(const QVariant &variant) {
+    const QVariant raw = unwrapVariant(variant);
+
+    if (raw.metaType().id() == qMetaTypeId<IwdManagedObjectMap>())
+        return qvariant_cast<IwdManagedObjectMap>(raw);
+
+    if (raw.metaType().id() == qMetaTypeId<QDBusArgument>()) {
+        const QDBusArgument argument = qvariant_cast<QDBusArgument>(raw);
+        return qdbus_cast<IwdManagedObjectMap>(argument);
+    }
+
+    return {};
+}
+
+IwdOrderedNetworkList iwdOrderedNetworksFromVariant(const QVariant &variant) {
+    const QVariant raw = unwrapVariant(variant);
+
+    if (raw.metaType().id() == qMetaTypeId<IwdOrderedNetworkList>())
+        return qvariant_cast<IwdOrderedNetworkList>(raw);
+
+    if (raw.metaType().id() == qMetaTypeId<QDBusArgument>()) {
+        const QDBusArgument argument = qvariant_cast<QDBusArgument>(raw);
+        return qdbus_cast<IwdOrderedNetworkList>(argument);
+    }
+
+    return {};
+}
+
 ObjectPathList objectPathsFromVariant(const QVariant &variant) {
     const QVariant raw = unwrapVariant(variant);
 
@@ -163,6 +207,14 @@ bool isValidPath(const QString &path) {
     return !path.isEmpty() && path != QLatin1String(kRootPath);
 }
 
+int signalPercentFromIwd(qint16 signalStrength) {
+    return std::clamp((static_cast<int>(signalStrength) + 10000) / 100, 0, 100);
+}
+
+bool isIwdSecureNetwork(const QString &networkType) {
+    return networkType != QLatin1String("open");
+}
+
 QString titleCaseBackendName(const QString &backendName) {
     if (backendName == QLatin1String("iwd"))
         return QStringLiteral("iwd");
@@ -175,10 +227,86 @@ QString titleCaseBackendName(const QString &backendName) {
 
 } // namespace
 
+class IwdAgent final : public QObject, protected QDBusContext {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "net.connman.iwd.Agent")
+
+public:
+    explicit IwdAgent(WifiController *controller)
+        : QObject(controller)
+        , m_controller(controller) {
+    }
+
+public slots:
+    void Release() {
+        if (!m_controller)
+            return;
+
+        m_controller->setIwdAgentRegisteredState(false);
+        m_controller->setIwdAgentRegistrationError({});
+    }
+
+    QString RequestPassphrase(const QDBusObjectPath &network) {
+        return takePasswordOrReplyWithError(network.path());
+    }
+
+    QString RequestPrivateKeyPassphrase(const QDBusObjectPath &) {
+        sendErrorReply(
+            QString::fromLatin1(kIwdAgentCanceledError),
+            QStringLiteral("Private key passphrases are not supported in this panel.")
+        );
+        return {};
+    }
+
+    IwdUserNameAndPassword RequestUserNameAndPassword(const QDBusObjectPath &) {
+        sendErrorReply(
+            QString::fromLatin1(kIwdAgentCanceledError),
+            QStringLiteral("Enterprise Wi-Fi networks that need a user name must be provisioned first.")
+        );
+        return {};
+    }
+
+    QString RequestUserPassword(const QDBusObjectPath &network, const QString &) {
+        return takePasswordOrReplyWithError(network.path());
+    }
+
+    void Cancel(const QString &) {
+    }
+
+private:
+    QString takePasswordOrReplyWithError(const QString &networkPath) {
+        if (!m_controller) {
+            sendErrorReply(
+                QString::fromLatin1(kIwdAgentCanceledError),
+                QStringLiteral("The iwd agent is unavailable.")
+            );
+            return {};
+        }
+
+        const QString password = m_controller->takeIwdPassphraseForNetwork(networkPath);
+        if (!password.isEmpty())
+            return password;
+
+        sendErrorReply(
+            QString::fromLatin1(kIwdAgentCanceledError),
+            QStringLiteral("No Wi-Fi passphrase is available for this network.")
+        );
+        return {};
+    }
+
+    WifiController *m_controller = nullptr;
+};
+
 WifiController::WifiController(QObject *parent)
     : QObject(parent) {
     qDBusRegisterMetaType<ConnectionSettingsMap>();
+    qDBusRegisterMetaType<IwdManagedObjectMap>();
+    qDBusRegisterMetaType<IwdOrderedNetworkList>();
+    qDBusRegisterMetaType<IwdUserNameAndPassword>();
     qRegisterMetaType<ConnectionSettingsMap>("ConnectionSettingsMap");
+    qRegisterMetaType<IwdManagedObjectMap>("IwdManagedObjectMap");
+    qRegisterMetaType<IwdOrderedNetworkList>("IwdOrderedNetworkList");
+    qRegisterMetaType<IwdUserNameAndPassword>("IwdUserNameAndPassword");
 
     m_stateRefreshTimer.setSingleShot(true);
     m_stateRefreshTimer.setInterval(80);
@@ -262,7 +390,8 @@ QAbstractItemModel *WifiController::networks() {
 }
 
 void WifiController::refreshState() {
-    if (m_backendName == QLatin1String("networkmanager")) {
+    if (m_backendName == QLatin1String("networkmanager")
+            || m_backendName == QLatin1String("iwd")) {
         refreshStateInternal();
         return;
     }
@@ -291,14 +420,27 @@ void WifiController::setEnabled(bool enabled) {
     updateBusyState();
 
     QString failure;
-    const bool changed = setProperty(
-        kNetworkManagerService,
-        kNetworkManagerPath,
-        kNetworkManagerInterface,
-        QStringLiteral("WirelessEnabled"),
-        enabled,
-        &failure
-    );
+    bool changed = false;
+
+    if (m_backendName == QLatin1String("iwd")) {
+        changed = setProperty(
+            kIwdService,
+            m_wifiDevicePath,
+            QString::fromLatin1(kIwdDeviceInterface),
+            QStringLiteral("Powered"),
+            enabled,
+            &failure
+        );
+    } else {
+        changed = setProperty(
+            kNetworkManagerService,
+            kNetworkManagerPath,
+            kNetworkManagerInterface,
+            QStringLiteral("WirelessEnabled"),
+            enabled,
+            &failure
+        );
+    }
 
     m_actionInProgress = false;
     updateBusyState();
@@ -328,12 +470,19 @@ void WifiController::disconnectCurrent() {
     m_actionInProgress = true;
     updateBusyState();
 
-    const QDBusMessage reply = callMethod(
-        kNetworkManagerService,
-        m_wifiDevicePath,
-        kNetworkManagerDeviceInterface,
-        QStringLiteral("Disconnect")
-    );
+    const QDBusMessage reply = m_backendName == QLatin1String("iwd")
+        ? callMethod(
+            kIwdService,
+            m_wifiDevicePath,
+            QString::fromLatin1(kIwdStationInterface),
+            QStringLiteral("Disconnect")
+        )
+        : callMethod(
+            kNetworkManagerService,
+            m_wifiDevicePath,
+            kNetworkManagerDeviceInterface,
+            QStringLiteral("Disconnect")
+        );
 
     m_actionInProgress = false;
     updateBusyState();
@@ -380,6 +529,68 @@ void WifiController::connectToNetwork(const QString &ssid, const QString &passwo
     if (selectedNetwork->connected)
         return;
 
+    if (m_backendName == QLatin1String("iwd")) {
+        const QString networkType = selectedNetwork->type.trimmed();
+        if (networkType == QLatin1String("wep")) {
+            setErrorMessage(QStringLiteral("WEP networks are not supported in this panel."));
+            return;
+        }
+
+        if (networkType == QLatin1String("8021x") && !selectedNetwork->savedConnection) {
+            setErrorMessage(QStringLiteral("Provision this 802.1X network in iwd first, then connect again."));
+            return;
+        }
+
+        const bool needsAgent = selectedNetwork->secure && !selectedNetwork->savedConnection;
+        if (needsAgent && password.trimmed().isEmpty()) {
+            setErrorMessage(QStringLiteral("Enter a password first."));
+            return;
+        }
+
+        if (needsAgent) {
+            ensureIwdAgentRegistered();
+            if (!m_iwdAgentRegistered) {
+                setErrorMessage(
+                    m_iwdAgentRegistrationError.isEmpty()
+                        ? QStringLiteral("Unable to register the iwd passphrase agent.")
+                        : m_iwdAgentRegistrationError
+                );
+                return;
+            }
+            m_iwdPendingPassphrases.insert(selectedNetwork->objectPath, password);
+        }
+
+        m_actionInProgress = true;
+        updateBusyState();
+
+        const QDBusMessage reply = callMethod(
+            kIwdService,
+            selectedNetwork->objectPath,
+            QString::fromLatin1(kIwdNetworkInterface),
+            QStringLiteral("Connect")
+        );
+
+        m_actionInProgress = false;
+        updateBusyState();
+        m_iwdPendingPassphrases.remove(selectedNetwork->objectPath);
+
+        if (reply.type() == QDBusMessage::ErrorMessage) {
+            if (reply.errorName().endsWith(QLatin1String(".NoAgent")) && !m_iwdAgentRegistrationError.isEmpty()) {
+                setErrorMessage(m_iwdAgentRegistrationError);
+            } else if (reply.errorName().endsWith(QLatin1String(".NotConfigured"))
+                    && networkType == QLatin1String("8021x")) {
+                setErrorMessage(QStringLiteral("This enterprise network still needs to be provisioned in iwd."));
+            } else {
+                setErrorMessage(errorTextForReply(reply, QStringLiteral("Unable to connect to the selected Wi-Fi network.")));
+            }
+            return;
+        }
+
+        setInfoMessage(QStringLiteral("Connecting to %1...").arg(trimmedSsid));
+        refreshStateInternal();
+        return;
+    }
+
     const QString accessPointPath = selectedNetwork->objectPath;
     m_actionInProgress = true;
     updateBusyState();
@@ -423,6 +634,30 @@ void WifiController::handleManagerPropertiesChanged(const QString &interfaceName
 }
 
 void WifiController::handleDevicePropertiesChanged(const QString &interfaceName, const QVariantMap &changedProperties, const QStringList &) {
+    if (m_backendName == QLatin1String("iwd")) {
+        if (interfaceName == QLatin1String(kIwdDeviceInterface)) {
+            m_stateRefreshTimer.start();
+            return;
+        }
+
+        if (interfaceName != QLatin1String(kIwdStationInterface))
+            return;
+
+        if (changedProperties.contains(QStringLiteral("Scanning"))) {
+            const bool scanning = changedProperties.value(QStringLiteral("Scanning")).toBool();
+            setScanningState(scanning);
+            if (scanning) {
+                m_scanTimeoutTimer.start();
+            } else {
+                m_scanTimeoutTimer.stop();
+            }
+        }
+
+        m_stateRefreshTimer.start();
+        m_networkRefreshTimer.start();
+        return;
+    }
+
     if (interfaceName == QLatin1String(kNetworkManagerDeviceInterface)) {
         m_stateRefreshTimer.start();
         return;
@@ -453,6 +688,22 @@ void WifiController::handleDeviceAdded(const QDBusObjectPath &) {
 
 void WifiController::handleDeviceRemoved(const QDBusObjectPath &) {
     m_stateRefreshTimer.start();
+}
+
+void WifiController::handleIwdInterfacesAdded(const QDBusObjectPath &, const QDBusArgument &) {
+    if (m_backendName != QLatin1String("iwd"))
+        return;
+
+    m_stateRefreshTimer.start();
+    m_networkRefreshTimer.start();
+}
+
+void WifiController::handleIwdInterfacesRemoved(const QDBusObjectPath &, const QStringList &) {
+    if (m_backendName != QLatin1String("iwd"))
+        return;
+
+    m_stateRefreshTimer.start();
+    m_networkRefreshTimer.start();
 }
 
 void WifiController::handleNewConnection(const QDBusObjectPath &) {
@@ -526,7 +777,29 @@ void WifiController::detectBackend() {
         m_settingsSignalsConnected = true;
     }
 
+    if (!m_iwdSignalsConnected) {
+        QDBusConnection::systemBus().connect(
+            kIwdService,
+            kRootPath,
+            kObjectManagerInterface,
+            "InterfacesAdded",
+            this,
+            SLOT(handleIwdInterfacesAdded(QDBusObjectPath,QDBusArgument))
+        );
+        QDBusConnection::systemBus().connect(
+            kIwdService,
+            kRootPath,
+            kObjectManagerInterface,
+            "InterfacesRemoved",
+            this,
+            SLOT(handleIwdInterfacesRemoved(QDBusObjectPath,QStringList))
+        );
+        m_iwdSignalsConnected = true;
+    }
+
     if (hasNetworkManager) {
+        unregisterIwdAgent();
+        m_iwdPendingPassphrases.clear();
         setBackendName(QStringLiteral("networkmanager"));
         setSupported(true);
         setReadOnly(false);
@@ -548,15 +821,19 @@ void WifiController::detectBackend() {
     setCurrentSsid({});
     m_networks.clear();
     m_wifiDevicePath.clear();
+    m_iwdPendingPassphrases.clear();
 
     if (hasIwd) {
-        clearUnsupportedState(
-            QStringLiteral("iwd"),
-            true,
-            QStringLiteral("Detected iwd, but this panel currently only supports NetworkManager.")
-        );
+        setBackendName(QStringLiteral("iwd"));
+        setSupported(true);
+        setReadOnly(false);
+        setUnsupportedReason({});
+        ensureIwdAgentRegistered();
+        refreshStateInternal();
         return;
     }
+
+    unregisterIwdAgent();
 
     if (hasConnman) {
         clearUnsupportedState(
@@ -575,6 +852,120 @@ void WifiController::detectBackend() {
 }
 
 void WifiController::refreshStateInternal() {
+    if (m_backendName == QLatin1String("iwd")) {
+        const QString previousDevicePath = m_wifiDevicePath;
+        const QDBusMessage objectsReply = callMethod(
+            kIwdService,
+            kRootPath,
+            kObjectManagerInterface,
+            QStringLiteral("GetManagedObjects")
+        );
+
+        const IwdManagedObjectMap managedObjects = objectsReply.type() == QDBusMessage::ErrorMessage
+            ? IwdManagedObjectMap {}
+            : managedObjectsFromVariant(objectsReply.arguments().value(0));
+
+        QString nextWifiDevicePath;
+        QVariantMap nextDeviceProperties;
+        QVariantMap nextStationProperties;
+        int bestDeviceScore = -1;
+
+        for (auto it = managedObjects.cbegin(); it != managedObjects.cend(); ++it) {
+            const ConnectionSettingsMap interfaces = it.value();
+            if (!interfaces.contains(QString::fromLatin1(kIwdDeviceInterface))
+                    || !interfaces.contains(QString::fromLatin1(kIwdStationInterface))) {
+                continue;
+            }
+
+            const QVariantMap deviceProperties = interfaces.value(QString::fromLatin1(kIwdDeviceInterface));
+            const QVariantMap stationProperties = interfaces.value(QString::fromLatin1(kIwdStationInterface));
+            const bool powered = deviceProperties.value(QStringLiteral("Powered")).toBool();
+            const QString state = stationProperties.value(QStringLiteral("State")).toString();
+
+            int score = 0;
+            if (state == QLatin1String("connected") || state == QLatin1String("connecting") || state == QLatin1String("roaming"))
+                score += 4;
+            if (powered)
+                score += 2;
+
+            if (score <= bestDeviceScore)
+                continue;
+
+            bestDeviceScore = score;
+            nextWifiDevicePath = it.key().path();
+            nextDeviceProperties = deviceProperties;
+            nextStationProperties = stationProperties;
+        }
+
+        m_wifiDevicePath = nextWifiDevicePath;
+        if (previousDevicePath != m_wifiDevicePath)
+            reconnectDeviceSignals(m_wifiDevicePath);
+
+        setSupported(true);
+        setReadOnly(false);
+        setUnsupportedReason({});
+
+        if (!isValidPath(m_wifiDevicePath)) {
+            setScanningState(false);
+            m_scanTimeoutTimer.stop();
+            setAvailable(false);
+            setEnabledState(false);
+            setCurrentSsid({});
+            m_networks.clear();
+            updateStatusText();
+            return;
+        }
+
+        setAvailable(true);
+
+        const bool powered = nextDeviceProperties.value(QStringLiteral("Powered")).toBool();
+        setEnabledState(powered);
+
+        if (!powered) {
+            setScanningState(false);
+            m_scanTimeoutTimer.stop();
+            setCurrentSsid({});
+            m_networks.clear();
+            updateStatusText();
+            return;
+        }
+
+        const bool scanning = nextStationProperties.value(QStringLiteral("Scanning")).toBool();
+        setScanningState(scanning);
+        if (scanning) {
+            m_scanTimeoutTimer.start();
+        } else {
+            m_scanTimeoutTimer.stop();
+        }
+
+        const QString connectedNetworkPath = objectPathFromVariant(nextStationProperties.value(QStringLiteral("ConnectedNetwork")));
+        QString activeSsid;
+
+        if (isValidPath(connectedNetworkPath)) {
+            const auto networkIt = managedObjects.constFind(QDBusObjectPath(connectedNetworkPath));
+            if (networkIt != managedObjects.cend()) {
+                activeSsid = networkIt.value().value(QString::fromLatin1(kIwdNetworkInterface)).value(QStringLiteral("Name")).toString().trimmed();
+            }
+
+            if (activeSsid.isEmpty()) {
+                activeSsid = getProperty(
+                    kIwdService,
+                    connectedNetworkPath,
+                    QString::fromLatin1(kIwdNetworkInterface),
+                    QStringLiteral("Name")
+                ).toString().trimmed();
+            }
+        }
+
+        setCurrentSsid(activeSsid);
+        if (!activeSsid.isEmpty() && m_infoMessage.startsWith(QStringLiteral("Connecting to ")))
+            setInfoMessage({});
+
+        updateStatusText();
+        refreshNetworksInternal(false, true);
+        return;
+    }
+
     if (m_backendName != QLatin1String("networkmanager")) {
         updateStatusText();
         return;
@@ -675,6 +1066,136 @@ void WifiController::refreshNetworksInternal(bool rescan, bool triggeredBySignal
         return;
     }
 
+    if (m_backendName == QLatin1String("iwd")) {
+        if (rescan) {
+            clearMessages();
+            const QDBusMessage scanReply = callMethod(
+                kIwdService,
+                m_wifiDevicePath,
+                QString::fromLatin1(kIwdStationInterface),
+                QStringLiteral("Scan")
+            );
+
+            if (scanReply.type() == QDBusMessage::ErrorMessage) {
+                if (scanReply.errorName().endsWith(QLatin1String(".Busy"))) {
+                    setScanningState(true);
+                    m_scanTimeoutTimer.start();
+                } else {
+                    setScanningState(false);
+                    setErrorMessage(errorTextForReply(scanReply, QStringLiteral("Unable to scan for nearby Wi-Fi networks.")));
+                }
+            } else {
+                setScanningState(true);
+                m_scanTimeoutTimer.start();
+            }
+        }
+
+        const QDBusMessage orderedReply = callMethod(
+            kIwdService,
+            m_wifiDevicePath,
+            QString::fromLatin1(kIwdStationInterface),
+            QStringLiteral("GetOrderedNetworks")
+        );
+
+        if (orderedReply.type() == QDBusMessage::ErrorMessage) {
+            if (!triggeredBySignal)
+                setScanningState(false);
+            setErrorMessage(errorTextForReply(orderedReply, QStringLiteral("Unable to load nearby Wi-Fi networks.")));
+            return;
+        }
+
+        const QDBusMessage objectsReply = callMethod(
+            kIwdService,
+            kRootPath,
+            kObjectManagerInterface,
+            QStringLiteral("GetManagedObjects")
+        );
+        const IwdManagedObjectMap managedObjects = objectsReply.type() == QDBusMessage::ErrorMessage
+            ? IwdManagedObjectMap {}
+            : managedObjectsFromVariant(objectsReply.arguments().value(0));
+
+        const IwdOrderedNetworkList orderedList = iwdOrderedNetworksFromVariant(orderedReply.arguments().value(0));
+        QVector<WifiNetworkModel::NetworkEntry> orderedNetworks;
+        orderedNetworks.reserve(orderedList.size());
+
+        for (const auto &record : orderedList) {
+            const QString networkPath = record.first.path();
+            QVariantMap networkProperties;
+
+            const auto objectIt = managedObjects.constFind(record.first);
+            if (objectIt != managedObjects.cend())
+                networkProperties = objectIt.value().value(QString::fromLatin1(kIwdNetworkInterface));
+
+            QString ssid = networkProperties.value(QStringLiteral("Name")).toString().trimmed();
+            if (ssid.isEmpty()) {
+                ssid = getProperty(
+                    kIwdService,
+                    networkPath,
+                    QString::fromLatin1(kIwdNetworkInterface),
+                    QStringLiteral("Name")
+                ).toString().trimmed();
+            }
+
+            QString networkType = networkProperties.value(QStringLiteral("Type")).toString().trimmed();
+            if (networkType.isEmpty()) {
+                networkType = getProperty(
+                    kIwdService,
+                    networkPath,
+                    QString::fromLatin1(kIwdNetworkInterface),
+                    QStringLiteral("Type")
+                ).toString().trimmed();
+            }
+
+            const bool connected = networkProperties.contains(QStringLiteral("Connected"))
+                ? networkProperties.value(QStringLiteral("Connected")).toBool()
+                : getProperty(
+                    kIwdService,
+                    networkPath,
+                    QString::fromLatin1(kIwdNetworkInterface),
+                    QStringLiteral("Connected")
+                ).toBool();
+            const bool savedConnection = isValidPath(objectPathFromVariant(
+                networkProperties.contains(QStringLiteral("KnownNetwork"))
+                    ? networkProperties.value(QStringLiteral("KnownNetwork"))
+                    : getProperty(
+                        kIwdService,
+                        networkPath,
+                        QString::fromLatin1(kIwdNetworkInterface),
+                        QStringLiteral("KnownNetwork")
+                    )
+            ));
+
+            WifiNetworkModel::NetworkEntry nextEntry;
+            nextEntry.objectPath = networkPath;
+            nextEntry.ssid = ssid;
+            nextEntry.displayName = labelForSsid(ssid);
+            nextEntry.type = networkType;
+            nextEntry.signal = signalPercentFromIwd(record.second);
+            nextEntry.secure = isIwdSecureNetwork(networkType);
+            nextEntry.savedConnection = savedConnection;
+            nextEntry.connected = connected;
+            orderedNetworks.append(nextEntry);
+        }
+
+        m_networks.setNetworks(orderedNetworks);
+
+        const bool scanning = getProperty(
+            kIwdService,
+            m_wifiDevicePath,
+            QString::fromLatin1(kIwdStationInterface),
+            QStringLiteral("Scanning")
+        ).toBool();
+        setScanningState(scanning);
+        if (scanning) {
+            m_scanTimeoutTimer.start();
+        } else {
+            m_scanTimeoutTimer.stop();
+        }
+
+        updateStatusText();
+        return;
+    }
+
     if (rescan) {
         clearMessages();
         const QDBusMessage scanReply = callMethod(
@@ -751,6 +1272,7 @@ void WifiController::refreshNetworksInternal(bool rescan, bool triggeredBySignal
         nextEntry.objectPath = accessPointPath;
         nextEntry.ssid = ssid;
         nextEntry.displayName = labelForSsid(ssid);
+        nextEntry.type = secure ? QStringLiteral("secure") : QStringLiteral("open");
         nextEntry.signal = signal;
         nextEntry.secure = secure;
         nextEntry.savedConnection = m_savedConnectionsBySsid.contains(ssid);
@@ -824,7 +1346,8 @@ void WifiController::reloadSavedConnections() {
 }
 
 void WifiController::reconnectDeviceSignals(const QString &devicePath) {
-    if (m_connectedDeviceSignalPath == devicePath)
+    const QString backend = m_backendName;
+    if (m_connectedDeviceSignalPath == devicePath && m_connectedDeviceSignalBackend == backend)
         return;
 
     disconnectDeviceSignals();
@@ -832,64 +1355,186 @@ void WifiController::reconnectDeviceSignals(const QString &devicePath) {
     if (!isValidPath(devicePath))
         return;
 
-    QDBusConnection::systemBus().connect(
-        kNetworkManagerService,
-        devicePath,
-        kDbusPropertiesInterface,
-        "PropertiesChanged",
-        this,
-        SLOT(handleDevicePropertiesChanged(QString,QVariantMap,QStringList))
-    );
-    QDBusConnection::systemBus().connect(
-        kNetworkManagerService,
-        devicePath,
-        kNetworkManagerWirelessInterface,
-        "AccessPointAdded",
-        this,
-        SLOT(handleAccessPointAdded(QDBusObjectPath))
-    );
-    QDBusConnection::systemBus().connect(
-        kNetworkManagerService,
-        devicePath,
-        kNetworkManagerWirelessInterface,
-        "AccessPointRemoved",
-        this,
-        SLOT(handleAccessPointRemoved(QDBusObjectPath))
-    );
+    if (backend == QLatin1String("iwd")) {
+        QDBusConnection::systemBus().connect(
+            kIwdService,
+            devicePath,
+            kDbusPropertiesInterface,
+            "PropertiesChanged",
+            this,
+            SLOT(handleDevicePropertiesChanged(QString,QVariantMap,QStringList))
+        );
+    } else {
+        QDBusConnection::systemBus().connect(
+            kNetworkManagerService,
+            devicePath,
+            kDbusPropertiesInterface,
+            "PropertiesChanged",
+            this,
+            SLOT(handleDevicePropertiesChanged(QString,QVariantMap,QStringList))
+        );
+        QDBusConnection::systemBus().connect(
+            kNetworkManagerService,
+            devicePath,
+            kNetworkManagerWirelessInterface,
+            "AccessPointAdded",
+            this,
+            SLOT(handleAccessPointAdded(QDBusObjectPath))
+        );
+        QDBusConnection::systemBus().connect(
+            kNetworkManagerService,
+            devicePath,
+            kNetworkManagerWirelessInterface,
+            "AccessPointRemoved",
+            this,
+            SLOT(handleAccessPointRemoved(QDBusObjectPath))
+        );
+    }
 
     m_connectedDeviceSignalPath = devicePath;
+    m_connectedDeviceSignalBackend = backend;
 }
 
 void WifiController::disconnectDeviceSignals() {
     if (m_connectedDeviceSignalPath.isEmpty())
         return;
 
-    QDBusConnection::systemBus().disconnect(
-        kNetworkManagerService,
-        m_connectedDeviceSignalPath,
-        kDbusPropertiesInterface,
-        "PropertiesChanged",
-        this,
-        SLOT(handleDevicePropertiesChanged(QString,QVariantMap,QStringList))
-    );
-    QDBusConnection::systemBus().disconnect(
-        kNetworkManagerService,
-        m_connectedDeviceSignalPath,
-        kNetworkManagerWirelessInterface,
-        "AccessPointAdded",
-        this,
-        SLOT(handleAccessPointAdded(QDBusObjectPath))
-    );
-    QDBusConnection::systemBus().disconnect(
-        kNetworkManagerService,
-        m_connectedDeviceSignalPath,
-        kNetworkManagerWirelessInterface,
-        "AccessPointRemoved",
-        this,
-        SLOT(handleAccessPointRemoved(QDBusObjectPath))
-    );
+    if (m_connectedDeviceSignalBackend == QLatin1String("iwd")) {
+        QDBusConnection::systemBus().disconnect(
+            kIwdService,
+            m_connectedDeviceSignalPath,
+            kDbusPropertiesInterface,
+            "PropertiesChanged",
+            this,
+            SLOT(handleDevicePropertiesChanged(QString,QVariantMap,QStringList))
+        );
+    } else {
+        QDBusConnection::systemBus().disconnect(
+            kNetworkManagerService,
+            m_connectedDeviceSignalPath,
+            kDbusPropertiesInterface,
+            "PropertiesChanged",
+            this,
+            SLOT(handleDevicePropertiesChanged(QString,QVariantMap,QStringList))
+        );
+        QDBusConnection::systemBus().disconnect(
+            kNetworkManagerService,
+            m_connectedDeviceSignalPath,
+            kNetworkManagerWirelessInterface,
+            "AccessPointAdded",
+            this,
+            SLOT(handleAccessPointAdded(QDBusObjectPath))
+        );
+        QDBusConnection::systemBus().disconnect(
+            kNetworkManagerService,
+            m_connectedDeviceSignalPath,
+            kNetworkManagerWirelessInterface,
+            "AccessPointRemoved",
+            this,
+            SLOT(handleAccessPointRemoved(QDBusObjectPath))
+        );
+    }
 
     m_connectedDeviceSignalPath.clear();
+    m_connectedDeviceSignalBackend.clear();
+}
+
+void WifiController::ensureIwdAgentRegistered() {
+    QDBusConnection bus = QDBusConnection::systemBus();
+    if (!bus.isConnected()) {
+        setIwdAgentRegisteredState(false);
+        setIwdAgentRegistrationError(QStringLiteral("The system D-Bus is unavailable."));
+        return;
+    }
+
+    if (!m_iwdAgent)
+        m_iwdAgent = new IwdAgent(this);
+
+    if (!m_iwdAgentObjectExported) {
+        m_iwdAgentObjectExported = bus.registerObject(
+            QString::fromLatin1(kIwdAgentObjectPath),
+            m_iwdAgent,
+            QDBusConnection::ExportAllSlots
+        );
+
+        if (!m_iwdAgentObjectExported) {
+            setIwdAgentRegisteredState(false);
+            setIwdAgentRegistrationError(QStringLiteral("Failed to export the iwd passphrase agent."));
+            return;
+        }
+    }
+
+    QDBusConnectionInterface *connectionInterface = bus.interface();
+    if (!connectionInterface || !connectionInterface->isServiceRegistered(QString::fromLatin1(kIwdService))) {
+        setIwdAgentRegisteredState(false);
+        setIwdAgentRegistrationError({});
+        return;
+    }
+
+    QDBusInterface manager(
+        QString::fromLatin1(kIwdService),
+        QString::fromLatin1(kIwdAgentManagerPath),
+        QString::fromLatin1(kIwdAgentManagerInterface),
+        bus
+    );
+
+    if (!manager.isValid()) {
+        setIwdAgentRegisteredState(false);
+        setIwdAgentRegistrationError(QStringLiteral("iwd is unavailable."));
+        return;
+    }
+
+    manager.call(
+        QStringLiteral("UnregisterAgent"),
+        QVariant::fromValue(QDBusObjectPath(QString::fromLatin1(kIwdAgentObjectPath)))
+    );
+
+    QDBusReply<void> reply = manager.call(
+        QStringLiteral("RegisterAgent"),
+        QVariant::fromValue(QDBusObjectPath(QString::fromLatin1(kIwdAgentObjectPath)))
+    );
+
+    if (!reply.isValid()) {
+        setIwdAgentRegisteredState(false);
+        setIwdAgentRegistrationError(reply.error().message());
+        return;
+    }
+
+    setIwdAgentRegistrationError({});
+    setIwdAgentRegisteredState(true);
+}
+
+void WifiController::unregisterIwdAgent() {
+    if (!m_iwdAgentRegistered)
+        return;
+
+    QDBusInterface manager(
+        QString::fromLatin1(kIwdService),
+        QString::fromLatin1(kIwdAgentManagerPath),
+        QString::fromLatin1(kIwdAgentManagerInterface),
+        QDBusConnection::systemBus()
+    );
+
+    if (manager.isValid()) {
+        manager.call(
+            QStringLiteral("UnregisterAgent"),
+            QVariant::fromValue(QDBusObjectPath(QString::fromLatin1(kIwdAgentObjectPath)))
+        );
+    }
+
+    setIwdAgentRegisteredState(false);
+}
+
+void WifiController::setIwdAgentRegisteredState(bool registered) {
+    m_iwdAgentRegistered = registered;
+}
+
+void WifiController::setIwdAgentRegistrationError(const QString &error) {
+    m_iwdAgentRegistrationError = error;
+}
+
+QString WifiController::takeIwdPassphraseForNetwork(const QString &networkPath) {
+    return m_iwdPendingPassphrases.take(networkPath);
 }
 
 QVariant WifiController::getProperty(const QString &service, const QString &path, const QString &interfaceName, const QString &propertyName) const {
@@ -1185,3 +1830,5 @@ bool WifiController::addAndActivateConnection(const QString &ssid, const QString
 
     return true;
 }
+
+#include "WifiController.moc"

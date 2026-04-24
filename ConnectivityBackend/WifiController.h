@@ -2,13 +2,17 @@
 
 #include "WifiNetworkModel.h"
 
+#include <QDBusArgument>
 #include <QDBusMessage>
 #include <QDBusObjectPath>
+#include <QHash>
 #include <QMap>
 #include <QObject>
 #include <QTimer>
 #include <QVariant>
 #include <QVariantMap>
+
+class IwdAgent;
 
 class WifiController final : public QObject {
     Q_OBJECT
@@ -75,16 +79,25 @@ private slots:
     void handleAccessPointRemoved(const QDBusObjectPath &accessPointPath);
     void handleDeviceAdded(const QDBusObjectPath &devicePath);
     void handleDeviceRemoved(const QDBusObjectPath &devicePath);
+    void handleIwdInterfacesAdded(const QDBusObjectPath &objectPath, const QDBusArgument &interfacesAndProperties);
+    void handleIwdInterfacesRemoved(const QDBusObjectPath &objectPath, const QStringList &interfaces);
     void handleNewConnection(const QDBusObjectPath &connectionPath);
     void handleConnectionRemoved(const QDBusObjectPath &connectionPath);
 
 private:
+    friend class IwdAgent;
+
     void detectBackend();
     void refreshStateInternal();
     void refreshNetworksInternal(bool rescan, bool triggeredBySignal);
     void reloadSavedConnections();
     void reconnectDeviceSignals(const QString &devicePath);
     void disconnectDeviceSignals();
+    void ensureIwdAgentRegistered();
+    void unregisterIwdAgent();
+    void setIwdAgentRegisteredState(bool registered);
+    void setIwdAgentRegistrationError(const QString &error);
+    QString takeIwdPassphraseForNetwork(const QString &networkPath);
 
     QVariant getProperty(const QString &service, const QString &path, const QString &interfaceName, const QString &propertyName) const;
     bool setProperty(const QString &service, const QString &path, const QString &interfaceName, const QString &propertyName, const QVariant &value, QString *errorMessage = nullptr) const;
@@ -129,8 +142,15 @@ private:
     bool m_actionInProgress = false;
     bool m_savedConnectionsDirty = true;
     bool m_managerSignalsConnected = false;
+    bool m_iwdSignalsConnected = false;
     bool m_settingsSignalsConnected = false;
     QString m_connectedDeviceSignalPath;
+    QString m_connectedDeviceSignalBackend;
+    IwdAgent *m_iwdAgent = nullptr;
+    bool m_iwdAgentRegistered = false;
+    bool m_iwdAgentObjectExported = false;
+    QString m_iwdAgentRegistrationError;
+    QHash<QString, QString> m_iwdPendingPassphrases;
     QTimer m_stateRefreshTimer;
     QTimer m_networkRefreshTimer;
     QTimer m_scanTimeoutTimer;

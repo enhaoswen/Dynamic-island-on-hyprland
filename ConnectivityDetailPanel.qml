@@ -610,6 +610,7 @@ Item {
                                 if (!root.provider) return;
                                 root.provider.connectWifiNetwork({
                                     ssid: ssid,
+                                    type: type,
                                     secure: secure,
                                     savedConnection: savedConnection,
                                     connected: connected
