@@ -1,5 +1,5 @@
-# Dynamic-island-on-hyprland
-- Dynamic Island is a smooth, flexible, and fast interactive island component designed for Hyprland users.
+# Tide 
+- Tide is a smooth, flexible, and fast interactive island component designed for Hyprland users.
 
 - Based on Quickshell and C++ /Qt 6.
 
