@@ -91,30 +91,36 @@ Video: https://www.youtube.com/watch?v=vCA8sWLJjiw&list=LL&index=2
 | Caps Lock Toggle | Show status message |
 
 
-### Dependencies
+Dependencies
 
-#### Build-time Dependencies (Compiling the backend)
-- CMake (>= 3.16)
+### Core Runtime Dependencies
 
-- C++17 Compiler (GCC or Clang)
-
-- Qt6 SDK: Specifically Core, Qml, Network, and DBus modules
-
-- libudev-dev: Required for monitoring battery status via udev
-
-#### Runtime Environment
-
+- This project is consumed directly by Quickshell at runtime and does not require a local build step.
 - Hyprland
-
 - Quickshell
+- `hyprctl`
+- `wpctl`
+- `brightnessctl`
+- `dbus-monitor`
+- `pactl`
+- UPower DBus service
+- Access to `/sys/class/power_supply`
+- `libudev`
+- BlueZ DBus service
+- Wi-Fi backend supported by the bundled connectivity plugin:
+  - NetworkManager, or
+  - iwd
 
-- pactl
+### Optional Runtime Dependencies
 
-- wpctl
-
-- cava
-
-- UPower DBus service and access to /sys/class/power_supply
+- `cava`
+  - Required only if you enable the `cava` left-swipe module.
+- ImageMagick (`magick` or `convert`)
+  - Used only for workspace overview wallpaper thumbnail caching.
+- `lyricsmpris`
+  - External helper used for lyrics integration.
+- `playerctld`
+  - Improves MPRIS player discovery for lyrics/media integration.
 
 #### Assets & Scripts
 
@@ -171,12 +177,8 @@ bind = SUPER, TAB, exec, qs ipc -p ~/.config/quickshell/dynamic_island/shell.qml
 
 ## Important thing
 
-- **For custom scripts, please make your own and change the path in UserConfig.qml**
-
 - **The backend is hardcoded to read /sys/class/backlight/intel_backlight/. If you are using AMD or a different backlight driver, please update the path (SysBackend.cpp:353).**
 
 - **The status of caps lock is currently polled via hyprctl devices. Ensure hyprctl is in your $PATH.**
-
-- **To get access, click [here](https://github.com/gozhuimeng/Dynamic-island-on-hyprland).**
 
 - **If you encounter any issues, feel free to open an issue!**
